@@ -35,12 +35,13 @@ from app.application.use_cases.updates import (
 from app.domain.entities import LogCategory, LogLevel
 from app.infrastructure.bw.bw_cli import BwCli, BwClient
 from app.infrastructure.config.config_repository import YamlAppSettings
-from app.infrastructure.config.security import TokenCrypto
+from app.infrastructure.config.security import KEY_FILENAME, TokenCrypto
 from app.infrastructure.kdbx.kdbx_writer import KdbxWriter
 from app.infrastructure.logging.app_logger import AppLogger
 from app.infrastructure.output.output_handler import OutputHandler
 from app.infrastructure.paths import (
     bw_data_dir,
+    config_dir,
     config_file,
     lock_file,
 )
@@ -65,7 +66,10 @@ def build_services() -> Services:
     logger = AppLogger()
     settings_repo = YamlAppSettings(config_file())
     settings_use_case = SettingsUseCase(settings_repo, logger)
-    crypto = TokenCrypto()
+    crypto = TokenCrypto(key_file=config_dir() / KEY_FILENAME)
+    # Re-key a legacy update token (clear text or old key-file ciphertext)
+    # under the current machine key before anything reads it.
+    _migrate_legacy_token(settings_use_case, crypto, logger)
 
     data_folder = bw_data_dir()
     bw_cli = BwCli(settings_repo.get("bitwarden.bw_path") or "bw", data_folder)
@@ -114,6 +118,42 @@ def _wire_export_use_case(services: Services, prompt_overwrite: Callable[[Path],
         output=services.output,
         logger=services.logger,
     )
+
+
+def _migrate_legacy_token(
+    settings_use_case: SettingsUseCase,
+    crypto: TokenCrypto,
+    logger: AppLogger,
+) -> None:
+    """Re-key a legacy ``update.token`` under the current machine key (best-effort).
+
+    Older builds stored the token either in clear text or encrypted with a key
+    file next to the config. ``reencrypt_if_legacy`` re-keys such values under
+    the current machine-derived key and the obsolete key file is deleted;
+    already-current ciphertext and absent tokens are left untouched. Runs once
+    at startup so a legacy value can never sit in the config past the first
+    launch. Failures are logged (redacted), never fatal.
+    """
+    try:
+        raw = str(settings_use_case.get_all().get("update.token") or "")
+        if not raw:
+            return
+        rekeyed = crypto.reencrypt_if_legacy(raw)
+        if rekeyed is None:
+            return
+        settings_use_case.update({"update.token": rekeyed})
+        crypto.remove_legacy_key_file()
+        logger.log(
+            LogCategory.CONFIG,
+            LogLevel.INFO,
+            "Migrated the update token to the current machine key.",
+        )
+    except Exception as exc:
+        logger.log(
+            LogCategory.CONFIG,
+            LogLevel.WARNING,
+            f"Could not migrate a legacy update token: {redact_secrets(str(exc))}",
+        )
 
 
 def _install_excepthook(logger: AppLogger) -> None:

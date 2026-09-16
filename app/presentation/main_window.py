@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from app.domain.entities import ExportResult
 
 _UPDATE_CHECK_DELAY_MS = 2000
+#: Ceiling for the worker-thread overwrite prompt (see ``_OverwritePrompt``).
+_PROMPT_TIMEOUT_SECONDS = 60
 
 
 class _LogBridge(QObject):
@@ -59,8 +61,11 @@ class _OverwritePrompt(QObject):
     """Deadlock-free overwrite question (called from the ExportWorker thread).
 
     ``ask()`` is invoked inside the worker thread while copying; it emits a
-    queued signal and BLOCKS on a queue until the GUI thread answers the modal
-    QMessageBox. Same pattern as the 2FA round-trip - no nested event loops.
+    queued signal and BLOCKS on a queue (60 s cap) until the GUI thread
+    answers the modal QMessageBox. When no answer arrives (window closed while
+    the prompt was pending) it times out and reports "do not overwrite", so a
+    worker can never hang forever. Same pattern as the 2FA round-trip - no
+    nested event loops.
     """
 
     requested = pyqtSignal(object)  # Path
@@ -73,7 +78,12 @@ class _OverwritePrompt(QObject):
 
     def ask(self, destination: Path) -> bool:
         self.requested.emit(destination)
-        return self._answers.get()
+        try:
+            return self._answers.get(timeout=_PROMPT_TIMEOUT_SECONDS)
+        except queue.Empty:
+            # No GUI answer (window closed while the prompt was pending): never
+            # overwrite - treat as "Skip" and let the copy loop record it.
+            return False
 
     def _on_requested(self, destination: Path) -> None:
         answer = QMessageBox.question(

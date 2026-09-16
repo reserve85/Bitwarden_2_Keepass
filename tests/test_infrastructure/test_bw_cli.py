@@ -228,6 +228,7 @@ def test_bw_client_retries_bare_name_with_resolved_binary(
             raise FileNotFoundError("bw")
         return _result(stdout=b"[]")
 
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
     monkeypatch.setattr(bw_module.subprocess, "run", fake_run)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
     monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))

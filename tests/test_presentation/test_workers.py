@@ -61,14 +61,16 @@ class TestLoginWorker:
         use_case = FakeLoginUseCase()
         worker = LoginWorker(use_case, "https://bitwarden.eu", "user@example.com")
         worker.set_password(bytearray(b"pw"))
-        results: list[str] = []
+        results: list[None] = []
         worker.finished_result.connect(results.append)
 
         worker.start()
         assert worker.wait(10_000)
         qapp.processEvents()
 
-        assert results == ["session-1"]
+        # the session is a wake-up ONLY - it rides the attribute, never the signal
+        assert results == [None]
+        assert worker.session == "session-1"
         assert use_case.captured_email == "user@example.com"
         # hand-off attribute survives for the MainWindow
         assert worker.session == "session-1"
@@ -82,7 +84,7 @@ class TestLoginWorker:
         worker.set_password(bytearray(b"pw"))
         fired: list[bool] = []
         worker.two_factor_required.connect(lambda: fired.append(True))
-        results: list[str] = []
+        results: list[None] = []
         worker.finished_result.connect(results.append)
 
         worker.start()
@@ -96,7 +98,8 @@ class TestLoginWorker:
 
         assert worker.wait(10_000)
         qapp.processEvents()
-        assert results == ["session-1"]
+        assert results == [None]  # session travels as an attribute, never a payload
+        assert worker.session == "session-1"
         assert use_case.run_count == 1  # 2FA prompts happen inside use_case.run
         assert use_case.totp_codes == ["123456"]
 

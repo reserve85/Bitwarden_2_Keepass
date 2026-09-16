@@ -3,8 +3,9 @@
 Security invariants:
 - No secret ever travels via a ``pyqtSignal``. The BW master password is a
   ``bytearray`` attribute set BEFORE ``start()``; the bw session is passed to
-  the ``ExportWorker`` as an attribute (not a signal payload); both are wiped
-  in ``finally`` paths.
+  the ``ExportWorker`` as an attribute (never a signal payload - the login
+  worker's ``finished_result`` carries no payload at all); both are wiped in
+  ``finally`` paths.
 - The KeePass master password is a worker ``bytearray``; the ``str`` copy it
   must hand to pykeepass (``ExportRequest.master_password``) is created once,
   inside ``run()``, and the bytearray is wiped afterwards.
@@ -47,7 +48,8 @@ class LoginWorker(QThread):
 
     two_factor_required = pyqtSignal()
     progress = pyqtSignal(object)  # ExportProgress, phase == LOGIN
-    finished_result = pyqtSignal(object)  # session: str
+    # Wake-up only - the session rides the ``session`` attribute, NEVER payloads.
+    finished_result = pyqtSignal(object)
     failed = pyqtSignal(str)  # redacted message
 
     def __init__(
@@ -93,7 +95,11 @@ class LoginWorker(QThread):
             )
             self._session = session
             self.progress.emit(self._sample(1, 1, "Logged in.", 1.0))
-            self.finished_result.emit(session)
+            # The session is NEVER transported as a signal payload - a queued
+            # signal would hold the secret in Qt's event queue until dispatch.
+            # ``finished_result`` is only a wake-up; MainWindow reads the
+            # session from the ``session`` attribute (see "Security invariants").
+            self.finished_result.emit(None)
         except Exception as exc:
             self.failed.emit(redact_secrets(str(exc)))
         finally:

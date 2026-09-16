@@ -34,17 +34,25 @@ everywhere means: minimise copies, clear Qt widgets, wipe mutable buffers in
   The flag carries just the variable name, never the value; modern `bw` CLI
   releases ignore piped stdin for `login` and otherwise fall back to an
   interactive masked prompt.
+- Exported databases are KDBX4, cipher AES-256, key derivation **Argon2**
+  (KeePass's modern memory-hard KDF) with the parameters pykeepass's blank
+  template ships; KeePass Desktop re-saves with its own tuned settings on the
+  first open, so the file's protection only improves from there.
 
 ## 3. The log never contains secrets
 
 - `AppLogger` is the only logging sink: a bounded in-memory ring buffer that
   **never writes to disk** (enforced by `test_app_logger.py::has_disk_handlers`).
-- Items are logged by name + counts only; failure payloads pass through
-  `_redacted_item()` (deep-copied, sensitive fields replaced).
-- `BwCli._redact()` masks values of sensitive field names and long base64
-  tokens (session keys, raw `bw login` stdout) before raising user-presentable
-  errors. `ErrorDialog` applies the same redaction **internally** - dialog
-  messages are treated as untrusted input.
+- Items are logged by name + counts only; an item-level failure logs the item
+  name + id and the (redacted) exception text - never notes, passwords or
+  fields. `_redacted_item()` is the deep-copy helper that keeps item payloads
+  log-safe (passwords, notes, hidden/linked/unknown fields, card number/code
+  and identity ssn/passport/license redacted) - exercised by tests today and
+  ready for any future item payload that needs logging.
+- Every error/log payload passes through `redact_secrets()` (masks values of
+  sensitive field names and long base64 tokens - session keys, raw `bw login`
+  stdout) before it is raised, logged or shown. `ErrorDialog` applies the same
+  redaction **internally** - dialog messages are treated as untrusted input.
 
 ## 4. bw binary trust (PATH-hijack guard)
 
@@ -67,7 +75,8 @@ never invoked before this check. `bw` is **not** bundled; install it yourself
 
 ## 6. Repo hygiene
 
-- `.gitignore` excludes `config/` and `output/` (runtime user data).
+- `.gitignore` excludes `config/`, `output/`, `bw_data/` and the lock file
+  (runtime user data).
 - `.pre-commit-config.yaml` runs `gitleaks`; CI runs `gitleaks` + `pip-audit`.
 - `TokenCrypto` (machine-derived PBKDF2-Fernet key, no key file) is used for
   the optional GitHub token. It is machine-derived **obfuscation**, not
@@ -82,3 +91,10 @@ never invoked before this check. `bw` is **not** bundled; install it yourself
   validated. A malicious/local `bw` can read the secrets it processes.
 - The self-update flow replaces the running executable; verify the release
   checksum when it is published.
+- The TOTP 2FA code for `bw login` is passed via `--code <value>` on the child
+  process command line (the bw CLI exposes no environment-variable equivalent;
+  the master password itself is never on argv). The code is short-lived
+  (30-60 s), never logged and never persisted; a local same-user process with
+  process-list access could observe it during the login attempt.
+- A crash mid-export can leave the app-owned `bw_data/` folder (bw CLI state:
+  server config) on disk; it is wiped at the next startup and git-ignored.
