@@ -275,10 +275,14 @@ def test_login_password_via_env_var_never_argv(
         "--raw",
         "--passwordenv",
         "B2KP_BW_PASSWORD",
+        "--nointeraction",
     ]
     # modern bw ignores piped stdin for `login`, so the password travels in the
     # child ENV (named by --passwordenv) - never argv, stdin or a log.
     assert login["kwargs"]["env"]["B2KP_BW_PASSWORD"] == "hunter2"
+    # The uniclient CLI must never drop into an invisible interactive prompt
+    # (it would BLOCK on the 2FA code instead of letting the GUI ask).
+    assert login["kwargs"]["env"]["BW_NOINTERACTION"] == "true"
     assert login["kwargs"]["input"] is None
     assert "hunter2" not in "|".join(login["cmd"])
 
@@ -293,13 +297,36 @@ def test_login_two_factor_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         BwCli("bw", tmp_path).login("user@example.com", bytearray(b"pw"))
 
 
+@pytest.mark.parametrize(
+    "stderr_fragment",
+    [
+        # newer uniclient CLI (2025.x+): fails fast instead of prompting
+        "Code is required.",
+        "Login failed. No provider selected.",
+        "Two-step login code:",
+        # older CLI generations
+        "Two-step login required. Run the same command with the --method and --code flags.",
+        "Two-factor authentication required",
+    ],
+)
+def test_login_signals_two_factor_required_on_any_cli_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stderr_fragment: str,
+) -> None:
+    _fake_run(monkeypatch, _login_responses(_result(stderr=stderr_fragment)))
+
+    with pytest.raises(TwoFactorRequired):
+        BwCli("bw", tmp_path).login("user@example.com", bytearray(b"pw"))
+
+
 def test_login_with_method_and_code_flags(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls = _fake_run(monkeypatch, _login_responses(_result(stdout="session-key-2\n")))
 
     BwCli("bw", tmp_path).login(
         "user@example.com",
         bytearray(b"pw"),
-        method="totp",
+        method="0",
         code="123456",
     )
 
@@ -310,8 +337,9 @@ def test_login_with_method_and_code_flags(monkeypatch: pytest.MonkeyPatch, tmp_p
         "--raw",
         "--passwordenv",
         "B2KP_BW_PASSWORD",
+        "--nointeraction",
         "--method",
-        "totp",
+        "0",
         "--code",
         "123456",
     ]
@@ -334,7 +362,14 @@ def test_login_already_logged_in_logs_out_and_retries_once(
 
     assert session == "session-key-3"
     commands = [c["cmd"][1:] for c in calls]
-    expected_login = ["login", "user@example.com", "--raw", "--passwordenv", "B2KP_BW_PASSWORD"]
+    expected_login = [
+        "login",
+        "user@example.com",
+        "--raw",
+        "--passwordenv",
+        "B2KP_BW_PASSWORD",
+        "--nointeraction",
+    ]
     assert commands.count(expected_login) == _RETRY_COUNT
     assert ["logout"] in commands
 
@@ -473,7 +508,18 @@ def test_bw_client_get_attachment_returns_bytes(monkeypatch: pytest.MonkeyPatch)
     client = BwClient("bw", "s", Path())
 
     assert client.get_attachment("item-1", "att-1") == payload
-    assert recorded["cmd"] == ["bw", "get", "attachment", "att-1", "--itemid", "item-1"]
+    # `--raw` keeps the bytes on stdout - without it the modern uniclient CLI
+    # writes the attachment FILE into the working directory ("attachments in
+    # the root" bug).
+    assert recorded["cmd"] == [
+        "bw",
+        "get",
+        "attachment",
+        "att-1",
+        "--itemid",
+        "item-1",
+        "--raw",
+    ]
 
 
 def test_bw_client_error_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:

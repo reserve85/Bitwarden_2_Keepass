@@ -43,9 +43,23 @@ COMMAND_TIMEOUT_SECONDS = 600  # plan-internal constant; bw commands are slow
 _VERSION_PATTERN = re.compile(r"(?i)^(?:bitwarden\s+cli\s+)?v?\d+\.\d+(?:\.\d+)*$")
 #: bw announces an active (stale interactive) session on stderr with this text.
 _ALREADY_LOGGED_IN = re.compile(r"(?i)already logged in")
-#: bw asks for a 2FA code on stderr with these markers.
+#: The uniclient CLI (2025.x+) checks this env var to decide whether it may
+#: prompt interactively. Without it, a 2FA-enabled vault makes ``bw login``
+#: BLOCK on an invisible interactive "Two-step login code:" prompt instead of
+#: failing fast (the prompt is written to stderr, which this adapter captures,
+#: so the user would just see "nothing happens"). Every login spawn carries it.
+_NOINTERACTION_ENV = "BW_NOINTERACTION"
+_NOINTERACTION_FLAG = "--nointeraction"  # global option; belt-and-braces
+#: bw signals a 2FA demand on stderr. Both CLI generations are covered: older
+#: versions print "Two-step login required. Run the same command with the
+#: --method and --code flags."; the uniclient (which is told to never prompt -
+#: see ``_NOINTERACTION_ENV``) fails the first attempt with "Code is required."
+#: (single provider) or "Login failed. No provider selected." (multiple).
 _TWO_STEP = re.compile(
-    r"(?i)two[- ]?step|two-factor|2fa|enter\s+(your\s+)?(2fa|otp|two-factor).*code",
+    r"(?i)two[- ]?step|two[- ]?factor|2fa"
+    r"|code is required"
+    r"|no provider selected"
+    r"|enter\s+(your\s+)?(2fa|otp|two[- ]?factor|two[- ]?step).*code",
 )
 
 
@@ -167,23 +181,40 @@ class BwCli:
 
         The password is handed to bw via ``--passwordenv``: an environment
         variable of the subprocess whose NAMED reference is the only thing on
-        argv. A stale interactive bw session would fail with "already logged
-        in", so a best-effort ``bw lock`` runs first and - if the marker is
-        still present - a ``bw logout`` + one retry is attempted. 2FA is
-        signaled with :class:`TwoFactorRequired`; the caller then retries with
-        ``method``/``code`` supplied.
+        argv. Every login runs with ``--nointeraction`` /
+        ``BW_NOINTERACTION=true``: the uniclient CLI would otherwise BLOCK on an
+        invisible interactive 2FA prompt when the vault has 2FA enabled (the
+        prompt goes to the captured stderr pipe; the GUI would show no dialog).
+        A stale interactive bw session would fail with "already logged in", so
+        a best-effort ``bw lock`` runs first and - if the marker is still
+        present - a ``bw logout`` + one retry is attempted. 2FA is signaled
+        with :class:`TwoFactorRequired`; the caller then retries with
+        ``method``/``code`` supplied. ``method`` must be the NUMERIC
+        TwoFactorProviderType id (e.g. "0" for the authenticator-app TOTP) -
+        the uniclient CLI calls ``parseInt`` on ``--method`` and rejects
+        symbolic names like "totp".
         """
         self.resolve_and_validate()
         # The env var NAME is public and appears on argv; the SECRET value goes
         # into extra_env (never argv/logs). noqa: S105 - this is not a secret.
         password_env_name = "B2KP_BW_PASSWORD"  # noqa: S105
-        args = ["login", email, "--raw", "--passwordenv", password_env_name]
+        args = [
+            "login",
+            email,
+            "--raw",
+            "--passwordenv",
+            password_env_name,
+            _NOINTERACTION_FLAG,
+        ]
         if method and code:
             args += ["--method", method, "--code", code]
         with contextlib.suppress(BwCliError):
             self.lock()
 
-        extra_env = {password_env_name: password.decode("utf-8")}
+        extra_env = {
+            password_env_name: password.decode("utf-8"),
+            _NOINTERACTION_ENV: "true",
+        }
         result = self._run(*args, check=False, extra_env=extra_env)
         stderr = self._stderr_text(result)
         if _TWO_STEP.search(stderr):
@@ -381,12 +412,17 @@ class BwClient:
         return json.loads(self._check_output("list", "items"))
 
     def get_attachment(self, item_id: str, attachment_id: str) -> bytes:
+        # `--raw` is REQUIRED: without it the modern uniclient CLI writes the
+        # attachment as a FILE into the process working directory (using the
+        # attachment's fileName) and prints only a message on stdout. With
+        # `--raw` (and no `--output`) the bytes are written to stdout.
         raw = self._check_output(
             "get",
             "attachment",
             attachment_id,
             "--itemid",
             item_id,
+            "--raw",
             binary=True,
         )
         return raw if isinstance(raw, bytes) else raw.encode("utf-8")

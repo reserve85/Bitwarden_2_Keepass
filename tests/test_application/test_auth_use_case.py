@@ -45,7 +45,9 @@ def test_login_two_factor_prompts_once_and_retries_with_code() -> None:
 
     assert session == "session-fake"
     assert bw.last_login_attempt == _TOTAL_LOGIN_ATTEMPTS
-    assert bw.login_methods == [(None, None), ("totp", "123456")]
+    # numeric provider id "0" = authenticator-app TOTP (the uniclient CLI
+    # rejects symbolic method names such as "totp").
+    assert bw.login_methods == [(None, None), ("0", "123456")]
     assert codes == ["123456"]
     # the code is never logged
     assert LogCategory.TOTP in [category for category, _, _ in logger.records]

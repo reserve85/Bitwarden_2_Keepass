@@ -36,6 +36,8 @@ class BwAuthPort(Protocol):
         self,
         email: str,
         password: bytearray,
+        # Numeric TwoFactorProviderType id on a 2FA retry (e.g. "0" for the
+        # authenticator-app TOTP) - the uniclient CLI rejects symbolic names.
         method: str | None = None,
         code: str | None = None,
     ) -> str: ...

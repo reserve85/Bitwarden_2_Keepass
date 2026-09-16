@@ -50,7 +50,11 @@ class BwLoginUseCase:
             phase = LogCategory.TOTP
             self._logger.log(phase, LogLevel.INFO, "Two-factor code required.")
             code = request_totp()
-            return self._bw.login(email, password, method="totp", code=code)
+            # `method` must be the NUMERIC TwoFactorProviderType id for the
+            # authenticator-app (TOTP) provider ("0"). The uniclient CLI parses
+            # `--method` with parseInt and rejects symbolic names like "totp"
+            # with "Invalid two-step login method.".
+            return self._bw.login(email, password, method="0", code=code)
 
     def close(self, _session: str) -> None:
         """Close the session (best-effort): lock + logout server-side.
