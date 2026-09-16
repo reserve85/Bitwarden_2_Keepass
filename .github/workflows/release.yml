@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Bitwarden2KeePass.exe + portable ZIP
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Write released version to app/_version.py
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:TAG -replace '^v', ''
+          Set-Content -Encoding utf8 -Path app/_version.py -Value "__version__ = `"$version`"`r`n"
+          Write-Output "Released version set to $version"
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Test (pytest, offscreen Qt - runs against the released version)
+        run: python -m pytest tests/ -q
+      - name: Build one-file EXE
+        run: |
+          python -m PyInstaller --onefile --windowed --name Bitwarden2KeePass --icon app/resources/Icon.ico --hidden-import github_updater app/main.py
+      - name: Verify EXE and report size
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\Bitwarden2KeePass.exe")) { throw "dist\Bitwarden2KeePass.exe is missing" }
+          $size = (Get-Item "dist\Bitwarden2KeePass.exe").Length
+          Write-Output "EXE size: $size bytes ($([math]::Round($size / 1MB, 1)) MiB)"
+      - name: Pack portable ZIP
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:TAG -replace '^v', ''
+          Compress-Archive -Path "dist\Bitwarden2KeePass.exe" -DestinationPath "dist\Bitwarden2KeePass-v$version.zip"
+      - name: Compute EXE sha256 (release body gate for the self-updater)
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "dist\Bitwarden2KeePass.exe" -Algorithm SHA256).Hash
+          Set-Content -Encoding utf8 -Path release-notes.md -Value "sha256 of Bitwarden2KeePass.exe: `$hash"
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Bitwarden2KeePass.exe
+            dist/Bitwarden2KeePass-${{ github.ref_name }}.zip
+          body_path: release-notes.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
