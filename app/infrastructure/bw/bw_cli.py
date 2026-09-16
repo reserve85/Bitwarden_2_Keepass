@@ -225,7 +225,9 @@ class BwCli:
                 env=self._env,
                 input=input_bytes,
                 encoding="utf-8" if text else None,
-                errors="replace",
+                # errors= alone would flip subprocess into text mode and break
+                # bytearray stdin (TypeError: write() argument must be str).
+                errors="replace" if text else None,
                 check=False,  # returncode is inspected below
             )
         except FileNotFoundError:
@@ -242,7 +244,7 @@ class BwCli:
                 env=self._env,
                 input=input_bytes,
                 encoding="utf-8" if text else None,
-                errors="replace",
+                errors="replace" if text else None,
                 check=False,
             )
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -237,6 +238,22 @@ def test_bw_client_retries_bare_name_with_resolved_binary(
     assert calls == [["bw", "list", "folders"], [str(bw_exe), "list", "folders"]]
 
 
+def test_run_feeds_bytearray_password_in_binary_mode(tmp_path: Path) -> None:
+    """Regression: errors='replace' flipped subprocess into text mode and broke
+    bytearray stdin ("write() argument must be str, not bytearray").
+
+    Runs a REAL subprocess (the interpreter itself) so the binary-mode pipe
+    behaviour is verified end-to-end, without a bw installation.
+    """
+    script = "import sys; sys.stdout.buffer.write(b'got:' + sys.stdin.buffer.read(64))"
+    cli = BwCli(sys.executable, tmp_path)
+
+    result = cli._run("-c", script, input_bytes=bytearray(b"hunter2"))  # noqa: SLF001
+
+    assert result.returncode == 0
+    assert cli._stdout_text(result) == "got:hunter2"  # noqa: SLF001
+
+
 # -- login --------------------------------------------------------------------
 
 
@@ -252,6 +269,10 @@ def test_login_returns_session_and_password_only_via_stdin(
     assert session == "session-key-abc"
     login = next(c for c in calls if c["cmd"][1] == "login")
     assert login["cmd"][1:] == ["login", "user@example.com", "--raw"]
+    # the password must travel in BINARY mode: encoding/errors stay unset, so
+    # subprocess stdin accepts the bytearray (regression guard).
+    assert login["kwargs"]["encoding"] is None
+    assert login["kwargs"]["errors"] is None
     # the very same backing store goes to stdin - no extra immutable bytes copy.
     assert login["kwargs"]["input"] is password
     assert "hunter2" not in "|".join(login["cmd"])
