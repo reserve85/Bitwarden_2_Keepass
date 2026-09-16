@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Implementation
+implementation_plan.md
+
+# App-local runtime data - never commit user config or export data
+config/
+output/

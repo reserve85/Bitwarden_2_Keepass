@@ -1,0 +1,1 @@
+"""Application layer - use cases depend only on the ports in ``ports.py``."""

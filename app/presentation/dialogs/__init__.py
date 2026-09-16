@@ -1,0 +1,1 @@
+"""GUI dialogs (password / 2FA / error)."""

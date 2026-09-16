@@ -1,0 +1,1 @@
+"""In-memory ring-buffer logger - the only logging sink."""
