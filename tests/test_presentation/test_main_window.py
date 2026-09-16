@@ -74,6 +74,19 @@ class TestMainWindow:
 
         assert "hello from logger" in window.log_page.panel.to_plain_text()
 
+    def test_settings_page_populated_from_persisted_config_on_startup(self) -> None:
+        """The form must show the loaded settings, not start blank (regression)."""
+        services = _FakeServices()
+        window = MainWindow(services)
+
+        page = window.settings_page
+        assert page._url.text() == "https://bitwarden.eu"
+        assert page._email.text() == "user@example.com"
+        assert page._bw_path.text() == "bw"
+        assert page._output_folder.text() == "C:\\export"
+        assert page._check_at_startup.isChecked() is True
+        assert page._delete_after_copy.isChecked() is False
+
     def test_settings_save_flow(self) -> None:
         services = _FakeServices()
         window = MainWindow(services)
@@ -85,6 +98,9 @@ class TestMainWindow:
         assert services.settings.updated_keys
         assert services.settings.to_dict()["bitwarden.url"] == "https://vault.example.com"
         assert "Settings saved" in window.settings_page._status.text()
+        # the form reflects the persisted (normalized) values
+        assert window.settings_page._url.text() == "https://vault.example.com"
+        assert window.settings_page._delete_after_copy.isChecked() is True
 
     def test_settings_save_reports_value_error(self) -> None:
         services = _FakeServices()

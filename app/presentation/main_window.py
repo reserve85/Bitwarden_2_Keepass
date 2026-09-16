@@ -131,6 +131,11 @@ class MainWindow(QMainWindow):
         self.main_page.start_button.clicked.connect(self.start_export)
         self.settings_page.save_requested.connect(self._on_settings_save)
 
+        # Show the persisted settings (config/app_config.yaml) in the form. Without
+        # this the page starts blank and the next Save would overwrite the stored
+        # values with the form defaults.
+        self.settings_page.populate(self._services.settings_use_case.get_all())
+
         # -- logger -> GUI bridge ---------------------------------------------------
         self._log_bridge = _LogBridge(self)
         self._log_bridge.line_received.connect(self.log_page.panel.add_line)
@@ -149,11 +154,14 @@ class MainWindow(QMainWindow):
     # -- settings ---------------------------------------------------------------
     def _on_settings_save(self, values: dict) -> None:
         try:
-            self._services.settings_use_case.update(values)
+            saved = self._services.settings_use_case.update(values)
         except ValueError as exc:
             self.settings_page.set_status(str(exc), error=True)
             return
         self.settings_page.set_status("Settings saved.")
+        # Reflect normalized values (e.g. empty bw_path -> "bw", absolute output
+        # folder) so the form always shows exactly what was persisted.
+        self.settings_page.populate(saved)
         self._log("Settings saved.")
 
     # -- update flow --------------------------------------------------------------

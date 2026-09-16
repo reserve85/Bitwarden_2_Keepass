@@ -68,6 +68,16 @@ def test_output_folder_absolute_value_kept(tmp_path: Path) -> None:
     assert settings.get("output.output_folder") == str(absolute.resolve())
 
 
+def test_empty_output_folder_means_not_configured(tmp_path: Path) -> None:
+    """A blank output folder must stay ``""`` (-> <base>/output), never cwd."""
+    config = tmp_path / "config" / "app_config.yaml"
+    settings = YamlAppSettings(config, base=tmp_path)
+    settings.set("output.output_folder", "  ")
+    assert settings.get("output.output_folder") == str((tmp_path / "output").resolve())
+    reloaded = YamlAppSettings(config, base=tmp_path)
+    assert reloaded.get("output.output_folder") == str((tmp_path / "output").resolve())
+
+
 def test_missing_keys_merged_on_load(tmp_path: Path) -> None:
     config = tmp_path / "config" / "app_config.yaml"
     config.parent.mkdir(parents=True)

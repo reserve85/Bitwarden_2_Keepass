@@ -111,8 +111,14 @@ class YamlAppSettings:
 
     def set(self, key: str, value: Any) -> None:  # noqa: ANN401 - settings values are untyped by design
         if key in _PATH_KEYS:
-            path = Path(str(value))
-            value = str(path if path.is_absolute() else (self._base / path).resolve())
+            text = str(value or "").strip()
+            if text:
+                path = Path(text)
+                value = str(path if path.is_absolute() else (self._base / path).resolve())
+            else:
+                # "" == "not configured" (resolved to <base>/output on read) - never
+                # store a blank field as the current working directory.
+                value = ""
         _dot_set(self._data, key, value)
         self._save()
 
