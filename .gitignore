@@ -220,6 +220,8 @@ __marimo__/
 # Implementation
 implementation_plan.md
 
-# App-local runtime data - never commit user config or export data
-config/
-output/
+# App-local runtime data - never commit user config or export data.
+# Anchored at the repo root so source dirs like app/infrastructure/config/
+# and app/infrastructure/output/ are NOT ignored.
+/config/
+/output/
