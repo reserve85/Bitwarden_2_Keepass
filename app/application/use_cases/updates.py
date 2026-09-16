@@ -108,8 +108,7 @@ class ApplyUpdateUseCase:
         actual = _sha256_file(downloaded)
         if actual != expected:
             message = (
-                "Downloaded asset checksum does not match the release notes "
-                "(refusing to update)."
+                "Downloaded asset checksum does not match the release notes (refusing to update)."
             )
             raise RuntimeError(message)
         self._logger.log(

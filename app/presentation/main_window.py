@@ -179,8 +179,7 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Update available",
-            f"Update available (v{result.get('latest_version')}).\n"
-            "Download and install now?",
+            f"Update available (v{result.get('latest_version')}).\nDownload and install now?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
@@ -351,9 +350,7 @@ class MainWindow(QMainWindow):
         copied = [outcome for outcome in result.copies if outcome.copied]
         skipped = [outcome for outcome in result.copies if outcome.skipped]
         failed = [
-            outcome
-            for outcome in result.copies
-            if not outcome.copied and not outcome.skipped
+            outcome for outcome in result.copies if not outcome.copied and not outcome.skipped
         ]
 
         name = Path(result.path).name

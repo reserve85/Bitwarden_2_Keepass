@@ -81,7 +81,7 @@ def _destination_group(
     return groups_by_id.get(folder_id, groups_by_id[None])
 
 
-def _add_entry_with_title_fallback(
+def _add_entry_with_title_fallback(  # noqa: PLR0913 - one logical entry spec split across args
     kp: PyKeePass,
     groups_by_id: dict[str | None, KPGroup],
     bw_item: Item,
@@ -103,14 +103,11 @@ def _add_entry_with_title_fallback(
                 password=password,
                 notes=notes,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if not _is_duplicate_title_error(exc):
                 raise
             if attempt == MAX_TITLE_ATTEMPTS:
-                message = (
-                    f"Could not add entry titled {base_title!r}: "
-                    "title collisions exhausted."
-                )
+                message = f"Could not add entry titled {base_title!r}: title collisions exhausted."
                 raise RuntimeError(message) from exc
             entry_title = f"{base_title} - ({bw_item.get_id()}) [{attempt}]"
     raise AssertionError("Unreachable: the loop above always returns or raises.")
@@ -170,15 +167,12 @@ def _rollback_entry(
     path never does - so the snapshot's presence selects the restore path.
     """
     if snapshot is not None and entry is not None and group is not None:
-        try:
+        # Best-effort rollback: a failed restore must not mask the original error.
+        with contextlib.suppress(Exception):
             _restore_entry(entry, snapshot, group)
-        except Exception:  # noqa: BLE001
-            pass
     elif entry is not None:
-        try:
+        with contextlib.suppress(Exception):
             kp.delete_entry(entry)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def _sync_custom_fields(
@@ -217,7 +211,7 @@ def _sync_custom_fields(
 
 def _sync_attachments(
     kp: PyKeePass,
-    get_attachment: "Callable[[str, str], bytes] | None",
+    get_attachment: Callable[[str, str], bytes] | None,
     entry: Entry,
     bw_item: Item,
 ) -> None:
@@ -295,9 +289,9 @@ class KdbxWriter:
     """
 
     def __init__(self) -> None:
-        self._attachment_source: "Callable[[str, str], bytes] | None" = None
+        self._attachment_source: Callable[[str, str], bytes] | None = None
 
-    def set_attachment_source(self, source: "Callable[[str, str], bytes]") -> None:
+    def set_attachment_source(self, source: Callable[[str, str], bytes]) -> None:
         """Provide the bw data source used to fetch attachment payloads."""
         self._attachment_source = source
 
@@ -310,7 +304,12 @@ class KdbxWriter:
         """Map the Bitwarden folder list onto KeePass groups."""
         return load_folders(kp, folders)
 
-    def add_entry(self, kp: PyKeePass, groups_by_id: dict[str | None, KPGroup], item: object) -> None:
+    def add_entry(
+        self,
+        kp: PyKeePass,
+        groups_by_id: dict[str | None, KPGroup],
+        item: object,
+    ) -> None:
         """Dispatch one Bitwarden item onto a fresh KeePass entry.
 
         Accepts an ``Item`` wrapper or a raw item ``dict``. On failure the
@@ -330,10 +329,8 @@ class KdbxWriter:
             elif item_type == ItemType.IDENTITY:
                 entry = _add_identity_entry(kp, groups_by_id, bw_item)
             else:
-                message = (
-                    f"Item {bw_item.get_name()!r} has unsupported type {item_type!r}."
-                )
-                raise RuntimeError(message)
+                message = f"Item {bw_item.get_name()!r} has unsupported type {item_type!r}."
+                raise RuntimeError(message) from None  # noqa: TRY301 - the except rolls back then re-raises
 
             entry.set_custom_property(BITWARDEN_ID_PROPERTY, bw_item.get_id())
 
@@ -354,7 +351,7 @@ class KdbxWriter:
             _sync_custom_fields(entry, bw_item, remove_stale=False)
             _sync_attachments(kp, self._attachment_source, entry, bw_item)
             _sync_tags(entry, bw_item.get_tags())
-        except Exception:  # noqa: BLE001
+        except Exception:
             _rollback_entry(kp, entry, None, None)
             raise
 

@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import contextlib
+from typing import TYPE_CHECKING
 
-from pykeepass.entry import Entry
+if TYPE_CHECKING:
+    from pykeepass.entry import Entry
 
 ANDROID_APP_PROPERTY = "AndroidApp"
 IOS_APP_PROPERTY_PREFIX = "iOS app #"

@@ -41,8 +41,8 @@ _FERNET_PREFIX = "gAAAAA"
 _machine_fernet: Fernet | None = None
 
 
-def _get_machine_fernet() -> Fernet:  # noqa: PLW0603 - module-level cache on purpose
-    global _machine_fernet
+def _get_machine_fernet() -> Fernet:
+    global _machine_fernet  # noqa: PLW0603 - module-level cache on purpose
     if _machine_fernet is None:
         machine_id = "|".join(
             [
@@ -60,6 +60,14 @@ def _get_machine_fernet() -> Fernet:  # noqa: PLW0603 - module-level cache on pu
         )
         _machine_fernet = Fernet(base64.urlsafe_b64encode(kdf.derive(machine_id)))
     return _machine_fernet
+
+
+def _decrypt_or_none(fernet: Fernet, encrypted: str) -> str | None:
+    """Decrypt with ``fernet``; return ``None`` on any failure (no raise)."""
+    try:
+        return fernet.decrypt(encrypted.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return None
 
 
 class TokenCrypto:
@@ -112,18 +120,13 @@ class TokenCrypto:
             return None
         if not self.is_encrypted(encrypted):
             return self.encrypt(encrypted)
-        try:
-            _get_machine_fernet().decrypt(encrypted.encode("ascii")).decode("utf-8")
+        if _decrypt_or_none(_get_machine_fernet(), encrypted) is not None:
             return None  # already encrypted with the current machine key
-        except (InvalidToken, ValueError):
-            legacy = self._legacy_fernet()
-            if legacy is None:
-                return None
-            try:
-                plain = legacy.decrypt(encrypted.encode("ascii")).decode("utf-8")
-            except (InvalidToken, ValueError):
-                return None
-        return self.encrypt(plain)
+        legacy = self._legacy_fernet()
+        if legacy is None:
+            return None
+        plain = _decrypt_or_none(legacy, encrypted)
+        return None if plain is None else self.encrypt(plain)
 
     @staticmethod
     def is_encrypted(value: str | None) -> bool:

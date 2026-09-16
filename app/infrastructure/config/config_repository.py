@@ -56,7 +56,7 @@ DEFAULT_KEYS = [
 _PATH_KEYS = {"output.output_folder"}
 
 
-def _dot_get(data: dict, key: str, default: Any = None) -> Any:
+def _dot_get(data: dict, key: str, default: Any = None) -> Any:  # noqa: ANN401 - settings values are untyped by design
     node: Any = data
     for part in key.split("."):
         if not isinstance(node, dict) or part not in node:
@@ -65,7 +65,7 @@ def _dot_get(data: dict, key: str, default: Any = None) -> Any:
     return node
 
 
-def _dot_set(data: dict, key: str, value: Any) -> None:
+def _dot_set(data: dict, key: str, value: Any) -> None:  # noqa: ANN401 - settings values are untyped by design
     parts = key.split(".")
     node = data
     for part in parts[:-1]:
@@ -88,7 +88,7 @@ class YamlAppSettings:
         self._data = {}
         if self._config_path.exists():
             try:
-                with open(self._config_path, "r", encoding="utf-8") as fh:
+                with self._config_path.open(encoding="utf-8") as fh:
                     loaded = yaml.safe_load(fh) or {}
                 self._data = loaded if isinstance(loaded, dict) else {}
             except (OSError, yaml.YAMLError):
@@ -102,14 +102,14 @@ class YamlAppSettings:
         path = Path(str(raw))
         return path if path.is_absolute() else (self._base / path).resolve()
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401 - settings values are untyped by design
         fallback = default if default is not None else _dot_get(DEFAULTS, key)
         value = _dot_get(self._data, key, fallback)
         if key in _PATH_KEYS:
             return str(self._resolve_path_key(key))
         return value
 
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any) -> None:  # noqa: ANN401 - settings values are untyped by design
         if key in _PATH_KEYS:
             path = Path(str(value))
             value = str(path if path.is_absolute() else (self._base / path).resolve())
@@ -133,24 +133,24 @@ class YamlAppSettings:
                 with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     yaml.safe_dump(self._data, fh, allow_unicode=True, sort_keys=False)
                 try:
-                    os.replace(tmp_name, self._config_path)
-                    return
+                    Path(tmp_name).replace(self._config_path)
                 except OSError as exc:
                     last_error = exc
+                else:
+                    return
             except OSError as exc:
                 last_error = exc
             finally:
-                if tmp_name and os.path.exists(tmp_name):
+                if tmp_name and Path(tmp_name).exists():
                     with contextlib.suppress(OSError):
-                        os.unlink(tmp_name)
+                        Path(tmp_name).unlink()
             time.sleep(0.05)
         try:
-            with open(self._config_path, "w", encoding="utf-8") as fh:
+            with self._config_path.open("w", encoding="utf-8") as fh:
                 yaml.safe_dump(self._data, fh, allow_unicode=True, sort_keys=False)
         except OSError as exc:
-            raise OSError(f"Could not save settings {self._config_path}: {exc}") from (
-                last_error or exc
-            )
+            message = f"Could not save settings {self._config_path}: {exc}"
+            raise OSError(message) from (last_error or exc)
 
     def to_dict(self) -> dict:
         return {key: self.get(key, None) for key in DEFAULT_KEYS}

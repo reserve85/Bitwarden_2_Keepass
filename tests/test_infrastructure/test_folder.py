@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pykeepass import PyKeePass, create_database
 
@@ -11,6 +11,9 @@ from app.infrastructure.kdbx.folder import (
     load_folders,
     nested_traverse_insert,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_nested_traverse_insert_builds_hierarchy() -> None:

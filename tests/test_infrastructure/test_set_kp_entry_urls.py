@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pykeepass import create_database
@@ -15,10 +14,13 @@ from app.infrastructure.kdbx.set_kp_entry_urls import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pykeepass import PyKeePass
     from pykeepass.entry import Entry
 
 
-def _new_entry(tmp_path: Path):
+def _new_entry(tmp_path: Path) -> tuple[PyKeePass, Entry]:
     kp = create_database(str(tmp_path / "test.kdbx"), password="test")
     return kp, kp.add_entry(kp.root_group, "title", "user", "pass")
 
@@ -41,9 +43,7 @@ def test_android_and_ios_app_identifiers_are_stored(tmp_path: Path) -> None:
     )
     assert entry.url is None
     assert entry.get_custom_property(ANDROID_APP_PROPERTY) == "com.example.android"
-    assert entry.get_custom_property(f"{IOS_APP_PROPERTY_PREFIX}1") == (
-        "com.example.ios"
-    )
+    assert entry.get_custom_property(f"{IOS_APP_PROPERTY_PREFIX}1") == ("com.example.ios")
     kp.save()
 
 

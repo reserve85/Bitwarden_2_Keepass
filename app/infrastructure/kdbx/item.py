@@ -139,9 +139,7 @@ class Item:
         card = self.item.get("card")
         if not isinstance(card, dict):
             return {}
-        return {
-            field: str(card.get(field) or "") for field in CARD_FIELDS
-        }
+        return {field: str(card.get(field) or "") for field in CARD_FIELDS}
 
     def get_identity(self) -> dict:
         """Normalized identity dict with guarded defaults (missing -> empty strings)."""

@@ -59,8 +59,7 @@ class OutputHandler:
     def _copy_one(self, source: Path, destination: Path, source_hash: str) -> CopyOutcome:
         try:
             if destination.exists() and (
-                self._overwrite_callback is None
-                or not self._overwrite_callback(destination)
+                self._overwrite_callback is None or not self._overwrite_callback(destination)
             ):
                 return CopyOutcome(
                     destination=str(destination),

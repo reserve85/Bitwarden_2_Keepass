@@ -70,9 +70,7 @@ class ConfirmPasswordDialog(QDialog):
         first = self._password.text()
         second = self._confirm.text()
         result = (
-            secure_password_from_str(first)
-            if (accepted and first and first == second)
-            else None
+            secure_password_from_str(first) if (accepted and first and first == second) else None
         )
         drop_qt_str(self._password)
         drop_qt_str(self._confirm)

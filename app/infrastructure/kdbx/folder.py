@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from pykeepass.group import Group as KPGroup
     from pykeepass import PyKeePass
+    from pykeepass.group import Group as KPGroup
 
 
 class Folder:
@@ -127,9 +127,7 @@ def load_folders(kp: PyKeePass, folders: list[dict]) -> dict[str | None, KPGroup
         # would otherwise abort the whole export. This also folds two Bitwarden
         # folders onto the same name into one group, mirroring the jslib logic
         # this module was lifted from.
-        existing = [
-            group for group in parent_group.subgroups if group.name == folder.name
-        ]
+        existing = [group for group in parent_group.subgroups if group.name == folder.name]
         if existing:
             new_group: KPGroup = existing[0]
         else:

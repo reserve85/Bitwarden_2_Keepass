@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pykeepass import PyKeePass
@@ -18,10 +18,16 @@ from app.infrastructure.kdbx.kdbx_writer import (
     _sync_attachments,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 _MASTER_PASSWORD = "pw"
 
+#: Documented ceiling for the title-suffix retry loop.
+_EXPECTED_MAX_TITLE_ATTEMPTS = 5
 
-def _is_protected(entry, name: str) -> bool:
+
+def _is_protected(entry: object, name: str) -> bool:
     """True when the custom property's XML Value carries ``Protected="True"``."""
     value = entry._xpath(  # noqa: SLF001
         f'String/Key[text()="{name}"]/../Value',
@@ -170,7 +176,7 @@ def test_secure_note_card_identity_entries(tmp_path: Path) -> None:
         "notes": "identity notes",
     }
     path, count = _run_export(tmp_path, [secure_note, card, identity])
-    assert count == 3
+    assert count == len([secure_note, card, identity])
 
     kp = PyKeePass(str(path), password=_MASTER_PASSWORD)
     note = kp.find_entries(title="Recovery", first=True)
@@ -221,7 +227,7 @@ def test_duplicate_title_is_suffixed(tmp_path: Path) -> None:
     first = _login_item("Vault", "id1")
     second = _login_item("Vault", "id2")
     path, count = _run_export(tmp_path, [first, second])
-    assert count == 2
+    assert count == len([first, second])
 
     kp = PyKeePass(str(path), password=_MASTER_PASSWORD)
     titles = sorted(entry.title for entry in kp.entries)
@@ -306,7 +312,7 @@ def test_sync_attachments_adds_and_removes_stale(tmp_path: Path) -> None:
 
 def test_duplicate_title_attempts_capped() -> None:
     """MAX_TITLE_ATTEMPTS guards runaway title-suffix loops."""
-    assert MAX_TITLE_ATTEMPTS == 5
+    assert MAX_TITLE_ATTEMPTS == _EXPECTED_MAX_TITLE_ATTEMPTS
 
 
 def test_redacted_item_redacts_secrets() -> None:
