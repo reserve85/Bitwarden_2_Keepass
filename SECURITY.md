@@ -28,8 +28,12 @@ everywhere means: minimise copies, clear Qt widgets, wipe mutable buffers in
   created per export and wiped (best-effort `rmtree`) afterwards. This makes
   the "nothing persisted to disk" claim true end-to-end - on the validated
   precondition that the used `bw` version honours these environment variables.
-- Session keys are passed to `bw` via the `BW_SESSION` environment variable
-  and stdin only - never on the command line.
+- Session keys are passed to `bw` via the `BW_SESSION` environment variable -
+  never on the command line. The master password is given to `bw login` only
+  through `--passwordenv <NAME>`: an environment variable of the `bw` process.
+  The flag carries just the variable name, never the value; modern `bw` CLI
+  releases ignore piped stdin for `login` and otherwise fall back to an
+  interactive masked prompt.
 
 ## 3. The log never contains secrets
 

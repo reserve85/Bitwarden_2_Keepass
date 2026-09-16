@@ -2,8 +2,12 @@
 
 Security model
 --------------
-- The master password travels ONLY via the subprocess stdin pipe, never via
-  argv or env (argv is readable by other local processes on Windows/Linux).
+- The master password travels ONLY in the ``bw`` subprocess environment,
+  referenced by the ``--passwordenv`` variable NAME - never on argv, never in
+  a log, never persisted. Modern bw CLI releases no longer read ``login``
+  passwords from a piped stdin; without ``--passwordenv`` they drop into an
+  interactive masked-input prompt that cannot work headless. The variable
+  value exists only in the child environment for the duration of the call.
 - ``BwClient`` passes the session through ``BW_SESSION`` (the bw CLI's own
   mechanism) - never on the command line. The session key lives in RAM only.
 - Disk hygiene: every invocation runs with ``BW_DATA_FOLDER`` and
@@ -161,27 +165,33 @@ class BwCli:
     ) -> str:
         """Log in and return the RAM-only session key (first ``--raw`` stdout line).
 
-        The password is fed through stdin. A stale interactive bw session would
-        fail with "already logged in", so a best-effort ``bw lock`` runs first
-        and - if the marker is still present - a ``bw logout`` + one retry is
-        attempted. 2FA is signaled with :class:`TwoFactorRequired`; the caller
-        then retries with ``method``/``code`` supplied.
+        The password is handed to bw via ``--passwordenv``: an environment
+        variable of the subprocess whose NAMED reference is the only thing on
+        argv. A stale interactive bw session would fail with "already logged
+        in", so a best-effort ``bw lock`` runs first and - if the marker is
+        still present - a ``bw logout`` + one retry is attempted. 2FA is
+        signaled with :class:`TwoFactorRequired`; the caller then retries with
+        ``method``/``code`` supplied.
         """
         self.resolve_and_validate()
-        args = ["login", email, "--raw"]
+        # The env var NAME is public and appears on argv; the SECRET value goes
+        # into extra_env (never argv/logs). noqa: S105 - this is not a secret.
+        password_env_name = "B2KP_BW_PASSWORD"  # noqa: S105
+        args = ["login", email, "--raw", "--passwordenv", password_env_name]
         if method and code:
             args += ["--method", method, "--code", code]
         with contextlib.suppress(BwCliError):
             self.lock()
 
-        result = self._run(*args, input_bytes=password, check=False)
+        extra_env = {password_env_name: password.decode("utf-8")}
+        result = self._run(*args, check=False, extra_env=extra_env)
         stderr = self._stderr_text(result)
         if _TWO_STEP.search(stderr):
             raise TwoFactorRequired(redact_secrets(stderr))
         if _ALREADY_LOGGED_IN.search(stderr):
             # stale interactive session - kick it out and retry exactly once.
             self.logout()
-            result = self._run(*args, input_bytes=password, check=False)
+            result = self._run(*args, check=False, extra_env=extra_env)
             stderr = self._stderr_text(result)
             if _TWO_STEP.search(stderr):
                 raise TwoFactorRequired(redact_secrets(stderr))
@@ -207,6 +217,7 @@ class BwCli:
         *,
         input_bytes: bytes | bytearray | None,
         text: bool,
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
         """Run the bw binary, retrying once with a resolved path on FileNotFoundError.
 
@@ -215,14 +226,17 @@ class BwCli:
         FileNotFoundError. On that signal we resolve once - PATH lookup, then
         the winget package folders - and cache the absolute path, so the first
         command works and every later command spawns the resolved binary.
+        ``extra_env`` (e.g. the ``--passwordenv`` variable) is merged into the
+        child environment for this invocation only.
         """
         binary = self._resolved_bw or self._bw_path
+        env = {**self._env, **(extra_env or {})}
         try:
             return subprocess.run(
                 [binary, *args],
                 capture_output=True,
                 timeout=COMMAND_TIMEOUT_SECONDS,
-                env=self._env,
+                env=env,
                 input=input_bytes,
                 encoding="utf-8" if text else None,
                 # errors= alone would flip subprocess into text mode and break
@@ -241,7 +255,7 @@ class BwCli:
                 [resolved, *args],
                 capture_output=True,
                 timeout=COMMAND_TIMEOUT_SECONDS,
-                env=self._env,
+                env=env,
                 input=input_bytes,
                 encoding="utf-8" if text else None,
                 errors="replace" if text else None,
@@ -253,6 +267,7 @@ class BwCli:
         *args: str,
         input_bytes: bytes | bytearray | None = None,
         check: bool = True,
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
         """Run a bw command; wrap failures into :class:`BwCliError`.
 
@@ -262,7 +277,12 @@ class BwCli:
         """
         text: bool = input_bytes is None
         try:
-            result = self._spawn(args, input_bytes=input_bytes, text=text)
+            result = self._spawn(
+                args,
+                input_bytes=input_bytes,
+                text=text,
+                extra_env=extra_env,
+            )
         except subprocess.TimeoutExpired as exc:
             message = f"bw command timed out after {COMMAND_TIMEOUT_SECONDS} s."
             raise BwCliError(message) from exc

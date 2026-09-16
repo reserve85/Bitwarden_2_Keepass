@@ -2,7 +2,7 @@
 
 The bw binary is NOT available in CI, so every test fakes ``subprocess.run``
 and ``shutil.which`` and asserts on the *invocation contract*: which commands
-are built, that secrets only ever travel via stdin / BW_SESSION, and that
+are built, that secrets only ever travel via env vars / BW_SESSION, and that
 failures are redacted.
 """
 
@@ -242,8 +242,9 @@ def test_run_feeds_bytearray_password_in_binary_mode(tmp_path: Path) -> None:
     """Regression: errors='replace' flipped subprocess into text mode and broke
     bytearray stdin ("write() argument must be str, not bytearray").
 
-    Runs a REAL subprocess (the interpreter itself) so the binary-mode pipe
-    behaviour is verified end-to-end, without a bw installation.
+    Belt-and-braces: ``login`` itself now uses ``--passwordenv``, but the stdin
+    path must stay binary for any future stdin-fed command. Runs a REAL
+    subprocess (the interpreter itself) to verify the pipe end-to-end.
     """
     script = "import sys; sys.stdout.buffer.write(b'got:' + sys.stdin.buffer.read(64))"
     cli = BwCli(sys.executable, tmp_path)
@@ -257,7 +258,7 @@ def test_run_feeds_bytearray_password_in_binary_mode(tmp_path: Path) -> None:
 # -- login --------------------------------------------------------------------
 
 
-def test_login_returns_session_and_password_only_via_stdin(
+def test_login_password_via_env_var_never_argv(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -268,13 +269,17 @@ def test_login_returns_session_and_password_only_via_stdin(
 
     assert session == "session-key-abc"
     login = next(c for c in calls if c["cmd"][1] == "login")
-    assert login["cmd"][1:] == ["login", "user@example.com", "--raw"]
-    # the password must travel in BINARY mode: encoding/errors stay unset, so
-    # subprocess stdin accepts the bytearray (regression guard).
-    assert login["kwargs"]["encoding"] is None
-    assert login["kwargs"]["errors"] is None
-    # the very same backing store goes to stdin - no extra immutable bytes copy.
-    assert login["kwargs"]["input"] is password
+    assert login["cmd"][1:] == [
+        "login",
+        "user@example.com",
+        "--raw",
+        "--passwordenv",
+        "B2KP_BW_PASSWORD",
+    ]
+    # modern bw ignores piped stdin for `login`, so the password travels in the
+    # child ENV (named by --passwordenv) - never argv, stdin or a log.
+    assert login["kwargs"]["env"]["B2KP_BW_PASSWORD"] == "hunter2"
+    assert login["kwargs"]["input"] is None
     assert "hunter2" not in "|".join(login["cmd"])
 
 
@@ -303,6 +308,8 @@ def test_login_with_method_and_code_flags(monkeypatch: pytest.MonkeyPatch, tmp_p
         "login",
         "user@example.com",
         "--raw",
+        "--passwordenv",
+        "B2KP_BW_PASSWORD",
         "--method",
         "totp",
         "--code",
@@ -327,7 +334,8 @@ def test_login_already_logged_in_logs_out_and_retries_once(
 
     assert session == "session-key-3"
     commands = [c["cmd"][1:] for c in calls]
-    assert commands.count(["login", "user@example.com", "--raw"]) == _RETRY_COUNT
+    expected_login = ["login", "user@example.com", "--raw", "--passwordenv", "B2KP_BW_PASSWORD"]
+    assert commands.count(expected_login) == _RETRY_COUNT
     assert ["logout"] in commands
 
 
