@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
+from PyQt6.QtWidgets import QApplication
 
 from tests.fakes import FakeBwCli, RecordingLogger
+
+# GUI tests run headless; the env var must be set before any QApplication.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 _SAMPLES = Path(__file__).parent / "samples"
 
@@ -36,3 +41,9 @@ def sample_folders(sample_vault: dict) -> list[dict]:
 @pytest.fixture
 def sample_items(sample_vault: dict) -> list[dict]:
     return list(sample_vault["items"])
+
+
+@pytest.fixture(scope="session", autouse=True)
+def qapp() -> QApplication:
+    """One offscreen QApplication for all GUI tests (created once)."""
+    return QApplication.instance() or QApplication([])

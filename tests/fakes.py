@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.domain.entities import LogCategory, LogLevel, TwoFactorRequired
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class FakeBwCli:
@@ -89,9 +92,17 @@ class RecordingLogger:
 
     def __init__(self) -> None:
         self.records: list[tuple[LogCategory, LogLevel, str]] = []
+        self.gui_callback: Any | None = None
 
     def log(self, category: LogCategory, level: LogLevel, message: str) -> None:
         self.records.append((category, level, message))
+        # Mirror the real AppLogger: a registered GUI sink receives a formatted
+        # line (so tests can exercise the logger -> UI wiring).
+        if self.gui_callback is not None:
+            self.gui_callback(f"[{level.value}] <{category.value}> {message}")
+
+    def install_gui_handler(self, callback: Callable[[str], None]) -> None:
+        self.gui_callback = callback
 
     @property
     def messages(self) -> list[str]:
