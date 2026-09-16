@@ -110,6 +110,57 @@ class FakeOverwriteAnswers:
         return bool(self._answers.pop(0)) if self._answers else False
 
 
+class FakeUpdatePort:
+    """Scriptable UpdatePort fake recording every call."""
+
+    def __init__(
+        self,
+        *,
+        check_result: dict | None = None,
+        download_path: str = "",
+        download_error: str = "",
+    ) -> None:
+        self.check_result = check_result or {
+            "has_update": False,
+            "latest_version": "",
+            "download_url": "",
+            "release_notes": "",
+            "error": "",
+        }
+        self.download_path = download_path
+        self.download_error = download_error
+        self.calls: list[str] = []
+        self.checked_tokens: list[str] = []
+        self.applied_paths: list[str] = []
+
+    def check(self, token: str = "") -> dict:
+        self.calls.append("check")
+        self.checked_tokens.append(token)
+        return dict(self.check_result)
+
+    def download(
+        self,
+        url: str,
+        _token: str = "",
+        _progress_callback: object | None = None,
+    ) -> str:
+        self.calls.append(f"download {url}")
+        if self.download_error:
+            raise RuntimeError(self.download_error)
+        return self.download_path
+
+    def apply(self, downloaded: Path) -> bool:
+        self.calls.append("apply")
+        self.applied_paths.append(str(downloaded))
+        return True
+
+    def restart(self) -> None:
+        self.calls.append("restart")
+
+    def clean_old_files(self) -> None:
+        self.calls.append("clean_old_files")
+
+
 class FakeSettings:
     """In-memory SettingsPort fake (dict-backed get/set/to_dict)."""
 
