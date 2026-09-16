@@ -50,7 +50,7 @@ class TwoFactorDialog(QDialog):
     def get_code(self) -> str | None:
         """Run the modal loop; return the code or ``None``; clear the field."""
         accepted = self.exec() == QDialog.DialogCode.Accepted
-        return self._collect(accepted)
+        return self._collect(accepted=accepted)
 
     def _collect(self, *, accepted: bool) -> str | None:
         """Shared accept/cancel path (testable without the modal loop)."""

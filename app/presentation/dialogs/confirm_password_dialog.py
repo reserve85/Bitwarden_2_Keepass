@@ -63,7 +63,7 @@ class ConfirmPasswordDialog(QDialog):
     def get_password(self) -> bytearray | None:
         """Run the modal loop; return the wiped-copy password or ``None``."""
         accepted = self.exec() == QDialog.DialogCode.Accepted
-        return self._collect(accepted)
+        return self._collect(accepted=accepted)
 
     def _collect(self, *, accepted: bool) -> bytearray | None:
         """Shared accept/cancel path (testable without the modal loop)."""

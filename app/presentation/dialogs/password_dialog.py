@@ -48,7 +48,7 @@ class PasswordDialog(QDialog):
         The Qt string copy is cleared whether accepted or cancelled.
         """
         accepted = self.exec() == QDialog.DialogCode.Accepted
-        return self._collect(accepted)
+        return self._collect(accepted=accepted)
 
     def _collect(self, *, accepted: bool) -> bytearray | None:
         """Shared accept/cancel path (testable without the modal loop)."""

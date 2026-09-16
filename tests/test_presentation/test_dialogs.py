@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import pytest
+from PyQt6.QtWidgets import QDialog
 
 from app.presentation.dialogs.confirm_password_dialog import ConfirmPasswordDialog
 from app.presentation.dialogs.error_dialog import ErrorDialog
@@ -34,6 +35,32 @@ class TestPasswordDialog:
     def test_empty_accept_returns_none(self) -> None:
         dialog = PasswordDialog("Login")
         assert dialog._collect(accepted=True) is None
+
+    def test_get_password_accept_returns_bytearray(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """get_password() must pass the dialog result on (regression: positional
+        call to the keyword-only _collect raised TypeError)."""
+        dialog = PasswordDialog("Login")
+        monkeypatch.setattr(dialog, "exec", lambda: QDialog.DialogCode.Accepted)
+        dialog._line.setText("hunter2")
+
+        result = dialog.get_password()
+
+        assert bytes(result) == b"hunter2"
+        assert dialog._line.text() == ""
+
+    def test_get_password_cancel_returns_none(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        dialog = PasswordDialog("Login")
+        monkeypatch.setattr(dialog, "exec", lambda: QDialog.DialogCode.Rejected)
+        dialog._line.setText("hunter2")
+
+        assert dialog.get_password() is None
+        assert dialog._line.text() == ""
 
 
 @pytest.mark.offscreen
@@ -70,6 +97,22 @@ class TestConfirmPasswordDialog:
 
         assert dialog._collect(accepted=True) is None
 
+    def test_get_password_accept_returns_bytearray(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression: get_password() fed _collect positionally -> TypeError."""
+        dialog = ConfirmPasswordDialog("Create")
+        monkeypatch.setattr(dialog, "exec", lambda: QDialog.DialogCode.Accepted)
+        dialog._password.setText("abc")
+        dialog._confirm.setText("abc")
+
+        result = dialog.get_password()
+
+        assert bytes(result) == b"abc"
+        assert dialog._password.text() == ""
+        assert dialog._confirm.text() == ""
+
 
 @pytest.mark.offscreen
 class TestTwoFactorDialog:
@@ -87,6 +130,20 @@ class TestTwoFactorDialog:
         dialog._line.setText("123456")
 
         assert dialog._collect(accepted=False) is None
+        assert dialog._line.text() == ""
+
+    def test_get_code_accept_returns_code(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression: get_code() fed _collect positionally -> TypeError."""
+        dialog = TwoFactorDialog()
+        monkeypatch.setattr(dialog, "exec", lambda: QDialog.DialogCode.Accepted)
+        dialog._line.setText("123456")
+
+        code = dialog.get_code()
+
+        assert code == "123456"
         assert dialog._line.text() == ""
 
 
