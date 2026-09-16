@@ -1,0 +1,82 @@
+{
+  "folders": [
+    { "id": "f-social", "name": "Social" },
+    { "id": "f-work", "name": "Work" },
+    { "id": "f-work-dev", "name": "Work/Dev" },
+    { "id": "f-empty", "name": "Empty Folder" }
+  ],
+  "items": [
+    {
+      "id": "login-1",
+      "type": 1,
+      "name": "Example",
+      "folderId": "f-work-dev",
+      "login": {
+        "username": "user@example.com",
+        "password": "hunter2",
+        "uris": [
+          { "uri": "https://example.com" },
+          { "uri": "androidapp://com.example.android" }
+        ],
+        "totp": "otpauth://totp/Example:user?secret=ABCDEFGHIJ&period=30&digits=6"
+      },
+      "fields": [
+        { "name": "plain", "value": "value", "type": 0 },
+        { "name": "secret", "value": "shh", "type": 1 },
+        { "name": "flag", "value": true, "type": 2 }
+      ],
+      "tags": ["favorite", "work"],
+      "attachments": [{ "id": "att-1", "fileName": "note.bin" }],
+      "notes": "Some notes"
+    },
+    {
+      "id": "note-1",
+      "type": 2,
+      "name": "Recovery codes",
+      "folderId": "f-work",
+      "notes": "recovery: ABC-123",
+      "fields": [],
+      "tags": ["important"],
+      "attachments": []
+    },
+    {
+      "id": "card-1",
+      "type": 3,
+      "name": "Visa Card",
+      "card": {
+        "cardholderName": "Jane Doe",
+        "number": "4111111111111111",
+        "brand": "Visa",
+        "expMonth": "12",
+        "expYear": "2030",
+        "code": "123"
+      },
+      "notes": "Shared card",
+      "fields": [],
+      "tags": [],
+      "attachments": []
+    },
+    {
+      "id": "identity-1",
+      "type": 4,
+      "name": "Passport",
+      "identity": {
+        "title": "Dr.",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "ssn": "123-45-6789",
+        "passportNumber": "AB123456",
+        "licenseNumber": "",
+        "address1": "1 Main St",
+        "city": "Berlin",
+        "country": "DE",
+        "email": "jane@example.com",
+        "phone": "+49 30 123456"
+      },
+      "notes": "",
+      "fields": [],
+      "tags": [],
+      "attachments": []
+    }
+  ]
+}

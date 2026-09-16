@@ -273,6 +273,20 @@ def test_bw_client_session_via_env_never_argv(
     assert recorded["env"]["BW_DATA_FOLDER"] == str(tmp_path)
 
 
+def test_bw_client_sync_runs_sync_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    recorded: dict[str, Any] = {}
+
+    def fake(*args: object, **_kwargs: object) -> subprocess.CompletedProcess:
+        recorded["cmd"] = list(args[0])
+        return _result()
+
+    monkeypatch.setattr(bw_module.subprocess, "run", fake)
+    client = BwClient("bw", "session-key-xyz", tmp_path)
+
+    client.sync()
+    assert recorded["cmd"] == ["bw", "sync"]
+
+
 def test_bw_client_list_items_parses_json(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = [{"id": "i1", "name": "Vault", "type": 1}]
     monkeypatch.setattr(

@@ -241,6 +241,9 @@ class BwClient:
             raise BwCliError(message)
         return result.stdout if binary else result.stdout.decode("utf-8", "replace")
 
+    def sync(self) -> None:
+        self._check_output("sync")
+
     def list_folders(self) -> list[dict]:
         return json.loads(self._check_output("list", "folders"))
 
