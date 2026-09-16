@@ -1,6 +1,6 @@
 """GitHub-token encryption - never stored in clear text.
 
-Ported from Gasmeter-Downloader (``app/infrastructure/config/security.py``):
+Ported from the reference project (``app/infrastructure/config/security.py``):
 the Fernet key is **derived at runtime** with PBKDF2-HMAC-SHA256
 (100 000 iterations) from a machine-specific identifier, so nothing secret is
 persisted besides the ciphertext itself - there is deliberately *no* key file
@@ -11,7 +11,7 @@ ciphertext keeps decrypting through a fallback path, and
 ``reencrypt_if_legacy`` re-keys such values under the current machine-derived
 key so the old key file can be deleted.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

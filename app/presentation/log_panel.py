@@ -2,9 +2,9 @@
 
 The AppLogger feeds lines here via ``install_gui_handler(self.add_line)``; the
 panel itself never writes to disk. Levels are colored with a syntax highlighter
-(Gasmeter pattern); the buffer is capped to keep the UI responsive.
+(reference pattern); the buffer is capped to keep the UI responsive.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

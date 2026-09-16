@@ -1,10 +1,10 @@
-"""MainWindow - navigation + export/update orchestration (Gasmeter pattern).
+"""MainWindow - navigation + export/update orchestration (reference pattern).
 
 Wires the use cases/ports handed in as ``services``; owns the worker
 lifecycles, the 2FA dialog round-trip and the deferred session close. Secrets
 travel only as worker attributes/bytearrays - never via ``pyqtSignal``.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations
@@ -39,6 +39,8 @@ from app.presentation.workers import (
 )
 
 if TYPE_CHECKING:
+    from PyQt6.QtGui import QCloseEvent
+
     from app.domain.entities import ExportResult
 
 _UPDATE_CHECK_DELAY_MS = 2000
@@ -388,3 +390,8 @@ class MainWindow(QMainWindow):
             self._log("Could not close the bw session cleanly.", LogLevel.WARNING)
         finally:
             self._export_session = None
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override name
+        """Window close: close an in-flight session (best-effort, idempotent)."""
+        self._close_session()
+        super().closeEvent(event)

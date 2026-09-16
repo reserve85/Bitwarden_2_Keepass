@@ -1,6 +1,6 @@
 """Config repository tests: default merge, atomic save, path resolution, new keys.
 
-# Gasmeter pattern (ported test suite, bitwarden_2_keepass schema)
+# reference pattern (ported test suite, bitwarden_2_keepass schema)
 """
 
 from __future__ import annotations

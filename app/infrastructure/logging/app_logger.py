@@ -3,7 +3,7 @@
 Guarantee: **no file output of any kind**. The logger keeps a bounded in-memory
 ring buffer and can feed a GUI callback over a signal.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

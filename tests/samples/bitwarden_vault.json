@@ -26,7 +26,10 @@
         { "name": "flag", "value": true, "type": 2 }
       ],
       "tags": ["favorite", "work"],
-      "attachments": [{ "id": "att-1", "fileName": "note.bin" }],
+      "attachments": [
+        { "id": "att-1", "fileName": "note.bin" },
+        { "id": "att-2", "fileName": "photo.bin" }
+      ],
       "notes": "Some notes"
     },
     {
@@ -77,6 +80,30 @@
       "fields": [],
       "tags": [],
       "attachments": []
+    },
+    {
+      "id": "ghost-1",
+      "type": 2,
+      "name": "Ghost folder item",
+      "folderId": "ghost-folder-id",
+      "notes": "folder is missing from the folders list -> lands in the root group",
+      "fields": [],
+      "tags": [],
+      "attachments": []
+    },
+    {
+      "id": "empty-1",
+      "type": 1,
+      "name": "",
+      "login": {
+        "username": "",
+        "password": "",
+        "uris": []
+      },
+      "fields": [],
+      "tags": [],
+      "attachments": [],
+      "notes": ""
     }
   ]
 }

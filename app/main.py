@@ -1,19 +1,25 @@
 """Composition root - paths -> settings -> logger -> use cases -> MainWindow.
 
-Mirrors Gasmeter's ``main.py``: single-instance guard via ``QLockFile``,
+Mirrors the reference ``main.py``: single-instance guard via ``QLockFile``,
 custom ``excepthook`` into the in-memory logger, startup update check after
 ``_UPDATE_CHECK_DELAY_MS``. The services object is duck-typed - the window
 reads the exact attributes it needs.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations
 
 import shutil
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
+
+if not __package__:  # direct ``python app/main.py`` launch
+    # When executed as a script, sys.path[0] is the ``app/`` directory and the
+    # ``app`` package itself would not be importable without this bootstrap.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtCore import QLockFile
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -44,7 +50,6 @@ from app.presentation.main_window import MainWindow
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from app.application.ports import BwDataPort
 
@@ -87,6 +92,7 @@ def build_services() -> Services:
         apply_update_use_case=ApplyUpdateUseCase(update_adapter, logger),
         token_decrypt=crypto.decrypt,
         restart_app=update_adapter.restart,
+        clean_old_files=update_adapter.clean_old_files,
         update_check_delay_ms=_UPDATE_CHECK_DELAY_MS,
         output=output,
         kdbx_writer=kdbx_writer,
@@ -132,6 +138,17 @@ def main() -> int:
 
     services = build_services()
     _install_excepthook(services.logger)
+
+    # Restore a broken ``.old`` state left by an interrupted self-update
+    # (best-effort like the update pipeline itself; never blocks startup).
+    try:
+        services.clean_old_files()
+    except Exception as exc:
+        services.logger.log(
+            LogCategory.UPDATE,
+            LogLevel.WARNING,
+            f"Could not clean old update files: {redact_secrets(str(exc))}",
+        )
 
     # Single-instance guard (best-effort; a stale lock file is not an error).
     lock = QLockFile(str(lock_file()))

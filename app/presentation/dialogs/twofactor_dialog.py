@@ -4,7 +4,7 @@ The code is a short-lived secret: the widget copy is cleared on accept/cancel
 and the code is never logged by the caller (the login use case only passes it
 to the bw CLI).
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

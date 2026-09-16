@@ -1,12 +1,13 @@
-"""Validated read/update/persist of the app settings (Gasmeter shape).
+"""Validated read/update/persist of the app settings (reference shape).
 
-Weird-URL and empty-outcome are the two validation axes: the server URL must be
-http(s), and a malformed value is rejected with a plain ``ValueError`` before
-anything is written - so a typo can never corrupt the persisted config. Values
-are persisted ONLY on an explicit Save (the SettingsPage calls ``update``);
-``get_all`` is a plain mirror for the GUI.
+Weird-URL and empty-bw_path are the two validation axes: the server URL must
+be http(s), an empty bw path falls back to the default ``bw`` (PATH lookup at
+use time), and a malformed value is rejected with a plain ``ValueError``
+before anything is written - so a typo can never corrupt the persisted
+config. Values are persisted ONLY on an explicit Save (the SettingsPage calls
+``update``); ``get_all`` is a plain mirror for the GUI.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ class SettingsUseCase:
             if key == "bitwarden.url":
                 validated[key] = _validated_url(value)
             elif key == "bitwarden.bw_path":
-                validated[key] = _validated_non_empty(key, value)
+                validated[key] = _validated_bw_path(value)
             elif key == "output.target_folders":
                 validated[key] = _validated_folder_list(value)
             elif key in {"output.delete_after_copy", "update.check_at_startup"}:
@@ -83,12 +84,9 @@ def _validated_url(value: object) -> str:
     return text
 
 
-def _validated_non_empty(key: str, value: object) -> str:
-    text = str(value or "").strip()
-    if not text:
-        message = f"{key} must not be empty"
-        raise ValueError(message)
-    return text
+def _validated_bw_path(value: object) -> str:
+    """bw_path: empty/whitespace falls back to the default ``bw`` (PATH lookup)."""
+    return (str(value or "").strip()) or "bw"
 
 
 def _validated_folder_list(value: object) -> list[str]:

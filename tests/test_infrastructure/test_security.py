@@ -1,6 +1,6 @@
 """TokenCrypto tests - machine-derived key, legacy migration, never clear text.
 
-# Gasmeter pattern (ported test suite)
+# reference pattern (ported test suite)
 """
 
 from __future__ import annotations

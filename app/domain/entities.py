@@ -25,7 +25,7 @@ class TwoFactorRequired(RuntimeError):  # noqa: N818 - ported name, plan-mandate
 
 
 class LogLevel(str, Enum):  # noqa: UP042 - explicit str/Enum per plan
-    """Severity levels - Gasmeter values."""
+    """Severity levels - reference values."""
 
     DEBUG = "DEBUG"
     INFO = "INFO"

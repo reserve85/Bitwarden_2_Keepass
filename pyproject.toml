@@ -7,7 +7,7 @@ readme = "README.md"
 license = { text = "MIT" }
 
 [tool.ruff]
-# Gasmeter/old-project style, widened to 100 columns.
+# reference/old-project style, widened to 100 columns.
 line-length = 100
 indent-width = 4
 

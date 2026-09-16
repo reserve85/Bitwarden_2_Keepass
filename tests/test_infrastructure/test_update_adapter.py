@@ -1,18 +1,20 @@
 """GithubUpdateAdapter tests - delegation to github_updater (no network).
 
-The adapter is the ONLY module importing github_updater; these tests pin its
-wiring (owner/repo/app_name/version) by monkeypatching ``UpdateService``.
+The adapter is the ONLY module importing github_updater (lazily, inside its
+methods); these tests pin its wiring (owner/repo/app_name/version and the
+``sys.frozen`` guard) by monkeypatching ``github_updater.UpdateService``.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import ClassVar
 
+import github_updater as gu_module
 import pytest
 from github_updater import DownloadResult, UpdateCheckResult, UpdateError
 
-import app.infrastructure.updating.update_adapter as adapter_module
 from app.infrastructure.updating.update_adapter import GithubUpdateAdapter
 
 
@@ -85,7 +87,7 @@ def _patch_service(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeUpdateService.apply_result = True
     FakeUpdateService.restarted = False
     FakeUpdateService.cleaned = False
-    monkeypatch.setattr(adapter_module, "UpdateService", FakeUpdateService)
+    monkeypatch.setattr(gu_module, "UpdateService", FakeUpdateService)
 
 
 def test_check_returns_as_dict_and_uses_configured_owner_repo(
@@ -134,6 +136,8 @@ def test_download_raises_update_error_on_failure(monkeypatch: pytest.MonkeyPatch
 
 def test_apply_restart_and_cleanup_delegate(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_service(monkeypatch)
+    # The sys.frozen guard only lets a packaged (PyInstaller) build apply.
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
     adapter = GithubUpdateAdapter("0.5.0")
 
     assert adapter.apply(Path("C:\\temp\\app_new.zip")) is True
@@ -144,3 +148,15 @@ def test_apply_restart_and_cleanup_delegate(monkeypatch: pytest.MonkeyPatch) -> 
 
     adapter.clean_old_files()
     assert FakeUpdateService.cleaned is True
+
+
+def test_apply_refuses_outside_a_frozen_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_service(monkeypatch)
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    adapter = GithubUpdateAdapter("0.5.0")
+
+    with pytest.raises(UpdateError, match="packaged"):
+        adapter.apply(Path("C:\\temp\\app_new.zip"))
+    assert FakeUpdateService.apply_result is True  # never called

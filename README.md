@@ -56,6 +56,14 @@ The app is a **security-focused** PyQt6 desktop application:
   setting `bw_path=bw` resolves `bw` from `PATH`; you can point the app at an
   absolute path in **Settings** if you prefer.
 
+  > **Note (winget):** `winget install Bitwarden.CLI` extracts `bw.exe` into a
+  > versioned package folder that winget does *not* add to `PATH`. The app
+  > auto-detects that location, so `winget install Bitwarden.CLI` works out of
+  > the box. With any other install method, keep the folder containing
+  > `bw.exe` on `PATH` (the `bw_path=bw` default) or enter the absolute path in
+  > **Settings**. An empty "bw CLI path" field simply means the `bw` default.
+  > Verify your install with `bw --version` and check `where bw` if needed.
+
 ## Installation
 
 ### Portable release (recommended)
@@ -75,6 +83,9 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe -m app.main
 ```
+
+(`python app/main.py` works too - the entry point prepends the repository
+root to `sys.path` so the `app` package is importable from a plain script.)
 ## Usage
 
 1. Open **Settings** (menu bar) and configure:

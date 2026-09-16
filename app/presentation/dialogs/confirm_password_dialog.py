@@ -4,7 +4,7 @@ OK is only enabled while both fields are non-empty AND equal; a mismatch shows
 an error label that is never logged. The password is returned as a single
 ``bytearray`` and both Qt line copies are cleared on the way out.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

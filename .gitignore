@@ -225,3 +225,4 @@ implementation_plan.md
 # and app/infrastructure/output/ are NOT ignored.
 /config/
 /output/
+/bitwarden2keepass.lock

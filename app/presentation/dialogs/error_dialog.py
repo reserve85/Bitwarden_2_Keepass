@@ -5,7 +5,7 @@ the user never contains secret-like content (passwords, tokens, long base64
 session keys, hidden-field values). The redacted text is also what the log
 panel / result surfaces use, so a raw secret cannot leak via the dialog copy.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

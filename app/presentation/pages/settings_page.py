@@ -4,7 +4,7 @@ The page only collects/populates values; persistence happens in the caller
 (MainWindow -> SettingsUseCase). Target folders support both a native folder
 picker and manual path entry (unlimited entries).
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

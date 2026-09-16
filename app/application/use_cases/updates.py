@@ -1,4 +1,4 @@
-"""Update orchestration - Gasmeter ports, plus the release-note sha256 gate.
+"""Update orchestration - reference ports, plus the release-note sha256 gate.
 
 Security model (documented in SECURITY.md):
 - ``ApplyUpdateUseCase`` refuses to replace the running binary unless the
@@ -6,7 +6,7 @@ Security model (documented in SECURITY.md):
   The release pipeline (``release.yml``) writes that hash into the release
   body; a release without it can never be applied by this app.
 
-# Gasmeter pattern (CheckForUpdatesUseCase/ApplyUpdateUseCase)
+# reference pattern (CheckForUpdatesUseCase/ApplyUpdateUseCase)
 """
 
 from __future__ import annotations

@@ -43,6 +43,42 @@ _TWO_STEP = re.compile(
 )
 
 
+def _find_winget_bw(configured: str) -> str | None:
+    """Locate a winget-installed ``bw.exe`` when a bare name is not on PATH.
+
+    ``winget install Bitwarden.CLI`` extracts ``bw.exe`` into a versioned
+    package folder (``%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\...``) that
+    winget does *not* add to PATH, so a PATH lookup for ``bw`` fails even
+    though the CLI is installed. This fallback only kicks in for a bare command
+    name (``bw`` / ``bw.exe``) - an explicit path the user configured is never
+    silently substituted. When several copies exist (winget keeps old versions
+    around), the newest ``bw.exe`` wins.
+    """
+    if Path(configured).name != configured:
+        return None  # explicit path - report it as-is
+    candidates: list[Path] = []
+    for env_name in ("LOCALAPPDATA", "PROGRAMDATA"):
+        root = os.environ.get(env_name, "")
+        if not root:
+            continue
+        win_get = Path(root) / "Microsoft" / "WinGet"
+        try:
+            package_dir = win_get / "Packages"
+            if package_dir.is_dir():
+                candidates.extend(package_dir.glob("*/bw.exe"))
+                candidates.extend(package_dir.glob("*/*/bw.exe"))
+            shim = win_get / "Links" / "bw.exe"
+            if shim.is_file():
+                candidates.append(shim)
+        except OSError:
+            continue
+    candidates = [path for path in candidates if path.is_file()]
+    if not candidates:
+        return None
+    newest = max(candidates, key=lambda path: path.stat().st_mtime)
+    return str(newest)
+
+
 class BwCliError(RuntimeError):
     """A bw CLI invocation failed; the message never contains secrets."""
 
@@ -67,16 +103,22 @@ class BwCli:
     def resolve_and_validate(self) -> Path:
         """Resolve ``bw_path`` via PATH and check the ``--version`` shape.
 
-        Returns the resolved absolute path, or raises :class:`BwCliError` when
-        the binary is missing or does not look like the Bitwarden CLI. The
-        returned path may be flagged by :func:`user_writable_warning` (a PATH-
-        hijack guard the caller may surface as a warning, never a hard error).
+        When the configured value is a bare command name that is not on PATH
+        (the winget install layout), :func:`_find_winget_bw` locates the
+        winget-installed ``bw.exe`` automatically. Returns the resolved
+        absolute path, or raises :class:`BwCliError` when the binary is missing
+        or does not look like the Bitwarden CLI. The returned path may be
+        flagged by :func:`user_writable_warning` (a PATH-hijack guard the
+        caller may surface as a warning, never a hard error).
         """
         resolved = shutil.which(self._bw_path)
         if resolved is None:
+            resolved = _find_winget_bw(self._bw_path)
+        if resolved is None:
             message = (
                 f"bw CLI not found (configured path {self._bw_path!r}). "
-                "Install the Bitwarden CLI or set the correct path in Settings."
+                "Install the Bitwarden CLI (winget install Bitwarden.CLI) or "
+                "set the full path to bw.exe in Settings."
             )
             raise BwCliError(message)
         result = self._run("--version")

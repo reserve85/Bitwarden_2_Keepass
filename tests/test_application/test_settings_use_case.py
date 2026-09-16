@@ -67,11 +67,14 @@ def test_update_rejects_unknown_key() -> None:
         use_case.update({"bitwarden.passwort": "x"})
 
 
-def test_update_rejects_empty_bw_path() -> None:
-    use_case, _, _ = _use_case()
+def test_update_defaults_empty_bw_path_to_bw() -> None:
+    """Empty/whitespace bw_path means the default ``bw`` (PATH lookup at use time)."""
+    use_case, settings, _ = _use_case()
 
-    with pytest.raises(ValueError, match="bw_path"):
-        use_case.update({"bitwarden.bw_path": "  "})
+    result = use_case.update({"bitwarden.bw_path": "   "})
+
+    assert result["bitwarden.bw_path"] == "bw"
+    assert settings.updated_keys == ["bitwarden.bw_path"]
 
 
 def test_update_rejects_non_list_target_folders() -> None:

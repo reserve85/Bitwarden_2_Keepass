@@ -9,6 +9,7 @@ failures are redacted.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -88,10 +89,83 @@ def test_resolve_and_validate_missing_binary_raises(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """No PATH entry and no winget install -> clear error hinting at winget."""
     monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-winget"))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
 
-    with pytest.raises(BwCliError, match="not found"):
+    with pytest.raises(BwCliError, match="winget"):
         BwCli("bw", tmp_path).resolve_and_validate()
+
+
+def test_resolve_and_validate_winget_fallback_finds_bw_exe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """winget installs bw.exe off PATH (never added to PATH) - still found."""
+    winget = tmp_path / "localappdata" / "Microsoft" / "WinGet"
+    package_dir = winget / "Packages" / "Bitwarden.CLI_Microsoft.Winget.Source_abc12345"
+    package_dir.mkdir(parents=True)
+    bw_exe = package_dir / "bw.exe"
+    bw_exe.write_bytes(b"fake-binary")
+    recorded: dict[str, Any] = {}
+
+    def fake_run(*args: object, **_kwargs: object) -> subprocess.CompletedProcess:
+        recorded["cmd"] = list(args[0])
+        return _result(stdout=_VERSION)
+
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(bw_module.subprocess, "run", fake_run)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
+
+    resolved = BwCli("bw", tmp_path).resolve_and_validate()
+
+    assert resolved == bw_exe
+    assert recorded["cmd"] == ["bw", "--version"]
+
+
+def test_resolve_and_validate_winget_fallback_picks_newest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """winget keeps old versions; the newest bw.exe must win."""
+    old_dir = tmp_path / "localappdata" / "Microsoft" / "WinGet" / "Packages" / "old"
+    new_dir = tmp_path / "localappdata" / "Microsoft" / "WinGet" / "Packages" / "new"
+    old_dir.mkdir(parents=True)
+    new_dir.mkdir(parents=True)
+    old_bw = old_dir / "bw.exe"
+    new_bw = new_dir / "bw.exe"
+    old_bw.write_bytes(b"old")
+    new_bw.write_bytes(b"new")
+    os.utime(old_bw, (1_000_000, 1_000_000))
+    os.utime(new_bw, (2_000_000, 2_000_000))
+
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        bw_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: _result(stdout=_VERSION),
+    )
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
+
+    resolved = BwCli("bw", tmp_path).resolve_and_validate()
+
+    assert resolved == new_bw
+
+
+def test_resolve_and_validate_does_not_substitute_explicit_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A configured absolute path is reported as-is - no winget guessing."""
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-winget"))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
+
+    with pytest.raises(BwCliError, match="nope"):
+        BwCli(tmp_path / "nope" / "bw.exe", tmp_path).resolve_and_validate()
 
 
 def test_resolve_and_validate_wrong_version_shape_raises(

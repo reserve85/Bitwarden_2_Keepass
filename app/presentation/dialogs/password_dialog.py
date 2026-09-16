@@ -4,7 +4,7 @@ The password is converted with :func:`secure_password_from_str` (ONE mutable
 buffer - no immutable ``bytes`` copy) and the Qt line-edit copy is cleared on
 the way out. Never stored, never logged.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

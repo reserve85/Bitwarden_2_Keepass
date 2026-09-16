@@ -3,10 +3,10 @@
 Dependency rule: ``application`` imports nothing from ``infrastructure``. The
 composition root (``main.py``) wires concrete implementations in and tests
 inject fakes - both through these structural interfaces. Duck-typed like the
-Gasmeter reference: a ``Protocol`` is documentation plus static checking,
+reference project: a ``Protocol`` is documentation plus static checking,
 nothing is enforced at runtime.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

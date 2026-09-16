@@ -15,7 +15,7 @@ thread) then BLOCK on a thread-safe ``queue.Queue``. The GUI slot shows
 ``TwoFactorDialog`` and calls ``submit_totp(code)`` (a queue put). No nested
 event loop, no ``QThread.wait``, no modal-on-worker deadlock.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations

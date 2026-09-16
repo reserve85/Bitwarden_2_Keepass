@@ -1,4 +1,4 @@
-"""App directory/path resolution (Gasmeter ``paths.py`` port).
+"""App directory/path resolution (reference ``paths.py`` port).
 
 The base dir differs between dev runs and frozen (PyInstaller) builds:
 - dev: repository root (where ``config/`` and ``output/`` live)

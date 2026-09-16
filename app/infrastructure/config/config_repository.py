@@ -1,6 +1,6 @@
 """YAML-backed app settings with default merge and atomic writes.
 
-Ported from Gasmeter-Downloader (``app/infrastructure/config/config_repository.py``)
+Ported from the reference project (``app/infrastructure/config/config_repository.py``)
 with the bitwarden_2_keepass config schema. The config file is the single,
 inspectable registry for user changes. Missing keys are merged with defaults on
 load; writes go to a temp file + ``os.replace`` so a crash can never corrupt
@@ -8,7 +8,7 @@ the config (direct-write fallback when Windows holds the target file). Path
 keys are stored as absolute paths resolved from the app base dir; the output
 folder defaults to ``<base>/output``.
 
-# Gasmeter pattern
+# reference pattern
 """
 
 from __future__ import annotations
