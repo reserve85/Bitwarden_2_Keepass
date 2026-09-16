@@ -29,9 +29,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
-    "PT009",  # unittest asserts are used on purpose
+    "INP001",  # nested test dirs intentionally namespace packages (no __init__.py)
+    "PT009",   # unittest asserts are used on purpose
     "PT011",  # assertRaises instead of pytest.raises
     "PT027",  # assertRaises as a context manager instead of pytest.raises
+    "S101",   # pytest-style bare asserts in tests
     "S105",   # dummy secrets in test fixtures
     "S106",   # dummy password arguments in test fixtures
     "S107",   # hardcoded dummy passwords in test fixtures
@@ -48,6 +50,7 @@ docstring-code-line-length = "dynamic"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "offscreen: GUI tests that require QT_QPA_PLATFORM=offscreen",
 ]
