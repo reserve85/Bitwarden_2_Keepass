@@ -178,6 +178,65 @@ def test_resolve_and_validate_wrong_version_shape_raises(
         BwCli("bw", tmp_path).resolve_and_validate()
 
 
+def test_resolve_and_validate_retries_bare_name_with_resolved_binary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Spawning bare "bw" raises FileNotFoundError; the probe must retry with the
+    resolved (winget) path - regression for "bw CLI not found: bw."."""
+    winget = tmp_path / "localappdata" / "Microsoft" / "WinGet"
+    package_dir = winget / "Packages" / "Bitwarden.CLI_Microsoft.Winget.Source_abc12345"
+    package_dir.mkdir(parents=True)
+    bw_exe = package_dir / "bw.exe"
+    bw_exe.write_bytes(b"fake-binary")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
+        calls.append(cmd)
+        if cmd[0] == "bw":
+            raise FileNotFoundError("bw")
+        return _result(stdout=_VERSION)
+
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(bw_module.subprocess, "run", fake_run)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
+
+    resolved = BwCli("bw", tmp_path).resolve_and_validate()
+
+    assert resolved == bw_exe
+    assert calls == [["bw", "--version"], [str(bw_exe), "--version"]]
+
+
+def test_bw_client_retries_bare_name_with_resolved_binary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """BwClient data commands must spawn the resolved binary when the bare
+    configured name cannot be spawned (winget installs are not on PATH)."""
+    winget = tmp_path / "localappdata" / "Microsoft" / "WinGet"
+    package_dir = winget / "Packages" / "Bitwarden.CLI_Microsoft.Winget.Source_abc12345"
+    package_dir.mkdir(parents=True)
+    bw_exe = package_dir / "bw.exe"
+    bw_exe.write_bytes(b"fake-binary")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
+        calls.append(cmd)
+        if cmd[0] == "bw":
+            raise FileNotFoundError("bw")
+        return _result(stdout=b"[]")
+
+    monkeypatch.setattr(bw_module.subprocess, "run", fake_run)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
+
+    client = BwClient("bw", "s", Path())
+
+    assert client.list_folders() == []
+    assert calls == [["bw", "list", "folders"], [str(bw_exe), "list", "folders"]]
+
+
 # -- login --------------------------------------------------------------------
 
 

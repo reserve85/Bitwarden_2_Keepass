@@ -33,8 +33,10 @@ from app.infrastructure.secure import redact_secrets
 
 COMMAND_TIMEOUT_SECONDS = 600  # plan-internal constant; bw commands are slow
 
-#: Expected shape of ``bw --version`` output (e.g. "Bitwarden CLI v2024.11.0").
-_VERSION_PATTERN = re.compile(r"(?i)bitwarden\s+cli\s+v?\d")
+#: Expected shape of ``bw --version`` output. Newer CLI versions print a bare
+#: version ("2026.7.0"), older ones "Bitwarden CLI v2024.11.0". Anything else
+#: (e.g. "garbled output") is treated as not being the Bitwarden CLI.
+_VERSION_PATTERN = re.compile(r"(?i)^(?:bitwarden\s+cli\s+)?v?\d+\.\d+(?:\.\d+)*$")
 #: bw announces an active (stale interactive) session on stderr with this text.
 _ALREADY_LOGGED_IN = re.compile(r"(?i)already logged in")
 #: bw asks for a 2FA code on stderr with these markers.
@@ -92,6 +94,7 @@ class BwCli:
 
     def __init__(self, bw_path: str | Path, data_folder: Path) -> None:
         self._bw_path = str(bw_path)
+        self._resolved_bw: str | None = None  # lazy PATH/winget fallback (see _spawn)
         self._env = {
             **os.environ,
             "NO_COLOR": "1",
@@ -126,7 +129,7 @@ class BwCli:
         if not _VERSION_PATTERN.search(version):
             message = (
                 f"Unexpected 'bw --version' output: {version.strip()!r}. "
-                "Expected a 'Bitwarden CLI v...' shape."
+                "Expected a version like '2026.7.0' or 'Bitwarden CLI v...'."
             )
             raise BwCliError(message)
         return Path(resolved)
@@ -198,6 +201,51 @@ class BwCli:
             self._run("logout")
 
     # -- subprocess plumbing ---------------------------------------------------
+    def _spawn(
+        self,
+        args: tuple[str, ...],
+        *,
+        input_bytes: bytes | bytearray | None,
+        text: bool,
+    ) -> subprocess.CompletedProcess:
+        """Run the bw binary, retrying once with a resolved path on FileNotFoundError.
+
+        ``resolve_and_validate`` may locate a winget-installed bw.exe (not on
+        PATH), but spawning the bare configured name still raises
+        FileNotFoundError. On that signal we resolve once - PATH lookup, then
+        the winget package folders - and cache the absolute path, so the first
+        command works and every later command spawns the resolved binary.
+        """
+        binary = self._resolved_bw or self._bw_path
+        try:
+            return subprocess.run(
+                [binary, *args],
+                capture_output=True,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+                env=self._env,
+                input=input_bytes,
+                encoding="utf-8" if text else None,
+                errors="replace",
+                check=False,  # returncode is inspected below
+            )
+        except FileNotFoundError:
+            if self._resolved_bw is not None:
+                raise  # previously resolved binary has vanished - report it
+            resolved = shutil.which(self._bw_path) or _find_winget_bw(self._bw_path)
+            if resolved is None:
+                raise
+            self._resolved_bw = resolved
+            return subprocess.run(
+                [resolved, *args],
+                capture_output=True,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+                env=self._env,
+                input=input_bytes,
+                encoding="utf-8" if text else None,
+                errors="replace",
+                check=False,
+            )
+
     def _run(
         self,
         *args: str,
@@ -212,16 +260,7 @@ class BwCli:
         """
         text: bool = input_bytes is None
         try:
-            result = subprocess.run(
-                [self._bw_path, *args],
-                capture_output=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                env=self._env,
-                input=input_bytes,
-                encoding="utf-8" if text else None,
-                errors="replace",
-                check=False,  # returncode is inspected below
-            )
+            result = self._spawn(args, input_bytes=input_bytes, text=text)
         except subprocess.TimeoutExpired as exc:
             message = f"bw command timed out after {COMMAND_TIMEOUT_SECONDS} s."
             raise BwCliError(message) from exc
@@ -255,6 +294,7 @@ class BwClient:
 
     def __init__(self, bw_path: str, session: str, data_folder: Path) -> None:
         self._bw_path = str(bw_path)
+        self._resolved_bw: str | None = None  # lazy PATH/winget fallback (see _spawn)
         self._env = {
             **os.environ,
             "BW_SESSION": session,
@@ -262,15 +302,41 @@ class BwClient:
             "BW_CONFIG_FILE": str(data_folder / "config.json"),
         }
 
-    def _check_output(self, *args: str, binary: bool = False) -> str | bytes:
+    def _spawn(self, args: tuple[str, ...]) -> subprocess.CompletedProcess:
+        """Run the bw binary, retrying once with a resolved path on FileNotFoundError.
+
+        A bare configured name (``bw``) that resolves only via the winget
+        package folders cannot be found by ``shutil.which``; spawning it raises
+        FileNotFoundError and is retried with the resolved absolute path. The
+        resolved path is cached, so later commands spawn it directly.
+        """
+        binary = self._resolved_bw or self._bw_path
         try:
-            result = subprocess.run(
-                [self._bw_path, *args],
+            return subprocess.run(
+                [binary, *args],
                 capture_output=True,
                 timeout=COMMAND_TIMEOUT_SECONDS,
                 env=self._env,
                 check=False,  # returncode is inspected below
             )
+        except FileNotFoundError:
+            if self._resolved_bw is not None:
+                raise  # previously resolved binary has vanished - report it
+            resolved = shutil.which(self._bw_path) or _find_winget_bw(self._bw_path)
+            if resolved is None:
+                raise
+            self._resolved_bw = resolved
+            return subprocess.run(
+                [resolved, *args],
+                capture_output=True,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+                env=self._env,
+                check=False,
+            )
+
+    def _check_output(self, *args: str, binary: bool = False) -> str | bytes:
+        try:
+            result = self._spawn(args)
         except subprocess.TimeoutExpired as exc:
             message = f"bw command timed out after {COMMAND_TIMEOUT_SECONDS} s."
             raise BwCliError(message) from exc
