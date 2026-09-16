@@ -1,0 +1,38 @@
+name: Security
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets-and-audit:
+    name: gitleaks + pip-audit + bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history - gitleaks must see every commit
+      - name: Install gitleaks
+        run: |
+          sudo curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks-linux-x64 -o /usr/local/bin/gitleaks
+          sudo chmod +x /usr/local/bin/gitleaks
+          gitleaks --version
+      - name: Run gitleaks (no --max-count cap - every finding surfaces)
+        run: |
+          gitleaks git --path=. --redact --exit-code --no-banner --verbose
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies (full environment)
+        run: |
+          python -m pip install -r requirements-dev.txt pip-audit bandit
+      - name: pip-audit - runtime requirements
+        run: python -m pip_audit -r requirements.txt
+      - name: pip-audit - full installed environment
+        run: python -m pip_audit
+      - name: bandit - static security scan
+        run: python -m bandit -r app/ -q
