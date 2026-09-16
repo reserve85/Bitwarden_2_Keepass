@@ -1,4 +1,4 @@
-"""Secure helper tests - wipe, single-buffer password, widget clearing, redaction."""
+"""Security helper tests - wipe, single-buffer password, widget clearing, redaction."""
 
 from __future__ import annotations
 
