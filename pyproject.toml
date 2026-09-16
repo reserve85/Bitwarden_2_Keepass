@@ -25,6 +25,7 @@ ignore = [
     "A002",
     "C901",
     "COM812",  # trailing-comma rule conflicts with the ruff formatter
+    "CPY001",  # copyright headers: attribution lives in the repo LICENSE
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -50,7 +51,6 @@ docstring-code-line-length = "dynamic"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_default_fixture_loop_scope = "function"
 markers = [
     "offscreen: GUI tests that require QT_QPA_PLATFORM=offscreen",
 ]

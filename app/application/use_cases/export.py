@@ -92,7 +92,7 @@ class ExportVaultUseCase:
                 index,
                 total,
                 f"Writing item {index}/{total}: {name}",
-                fraction,
+                fraction=fraction,
             )
             try:
                 self._kdbx.add_entry(kp, groups, item)
@@ -124,7 +124,7 @@ class ExportVaultUseCase:
             progress_cb=progress,
         )
 
-        self._emit(progress, ExportPhase.DONE, 1, 1, "Export finished", 1.0)
+        self._emit(progress, ExportPhase.DONE, 1, 1, "Export finished", fraction=1.0)
         self._logger.log(
             LogCategory.EXPORT,
             LogLevel.INFO,
@@ -139,6 +139,7 @@ class ExportVaultUseCase:
         current: int,
         total: int,
         message: str,
+        *,
         fraction: float = 0.0,
     ) -> None:
         sample = ExportProgress(
