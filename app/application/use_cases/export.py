@@ -40,11 +40,12 @@ _ITEM_FRACTION_END = 0.8
 class ExportVaultUseCase:
     def __init__(
         self,
-        bw_client_factory: Callable[[], BwDataPort],
+        bw_client_factory: Callable[[str], BwDataPort],
         kdbx: KdbxPort,
         output: OutputPort,
         logger: LoggerPort,
     ) -> None:
+        """``bw_client_factory(session)`` builds the data client per export run."""
         self._bw_client_factory = bw_client_factory
         self._kdbx = kdbx
         self._copy = CopyToTargetsUseCase(output, logger)
@@ -56,7 +57,7 @@ class ExportVaultUseCase:
         progress: Callable[[ExportProgress], None],
     ) -> ExportResult:
         """Export the whole vault into a fresh kdbx and copy it to the targets."""
-        bw = self._bw_client_factory()
+        bw = self._bw_client_factory(request.session)
 
         # Local calendar date is intended for the file name (DTZ005).
         filename = f"{datetime.now():%Y%m%d}_bitwarden_export.kdbx"  # noqa: DTZ005

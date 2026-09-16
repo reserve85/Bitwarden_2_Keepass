@@ -82,7 +82,7 @@ def _make_use_case(
     logger: RecordingLogger,
 ) -> ExportVaultUseCase:
     return ExportVaultUseCase(
-        bw_client_factory=lambda: bw,
+        bw_client_factory=lambda _session: bw,
         kdbx=kdbx,
         output=OutputHandler(),
         logger=logger,

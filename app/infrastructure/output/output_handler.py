@@ -35,6 +35,10 @@ class OutputHandler:
         """``overwrite_callback(Path) -> bool``: True = overwrite, False = skip."""
         self._overwrite_callback = overwrite_callback
 
+    def set_overwrite_callback(self, callback: Callable[[Path], bool]) -> None:
+        """Wire (or swap) the overwrite prompt once the GUI window exists."""
+        self._overwrite_callback = callback
+
     def file_sha256(self, path: Path) -> str:
         """Content hash, chunked to keep memory flat (not the streamed text hash)."""
         digest = hashlib.sha256()

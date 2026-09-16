@@ -9,6 +9,7 @@ travel only as worker attributes/bytearrays - never via ``pyqtSignal``.
 
 from __future__ import annotations
 
+import queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +53,38 @@ class _LogBridge(QObject):
         self.line_received.emit(line)
 
 
+class _OverwritePrompt(QObject):
+    """Deadlock-free overwrite question (called from the ExportWorker thread).
+
+    ``ask()`` is invoked inside the worker thread while copying; it emits a
+    queued signal and BLOCKS on a queue until the GUI thread answers the modal
+    QMessageBox. Same pattern as the 2FA round-trip - no nested event loops.
+    """
+
+    requested = pyqtSignal(object)  # Path
+
+    def __init__(self, parent_window: QMainWindow) -> None:
+        super().__init__(parent_window)
+        self._window = parent_window
+        self._answers: queue.Queue[bool] = queue.Queue()
+        self.requested.connect(self._on_requested)
+
+    def ask(self, destination: Path) -> bool:
+        self.requested.emit(destination)
+        return self._answers.get()
+
+    def _on_requested(self, destination: Path) -> None:
+        answer = QMessageBox.question(
+            self._window,
+            "Overwrite file?",
+            f"{destination.name} already exists in {destination.parent}.\n"
+            "Overwrite it with the new export?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        self._answers.put(answer == QMessageBox.StandardButton.Yes)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, services: Any) -> None:  # noqa: ANN401 - duck-typed service container
         super().__init__()
@@ -65,6 +98,11 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"Bitwarden 2 KeePass v{__version__}")
         self.resize(780, 540)
+
+        # Overwrite prompt used by the OutputHandler from inside the worker
+        # thread (the composition root wires prompt_overwrite into it).
+        self._overwrite_prompt = _OverwritePrompt(self)
+        self.prompt_overwrite = self._overwrite_prompt.ask
 
         # -- pages ---------------------------------------------------------------
         self.main_page = MainPage(self)
