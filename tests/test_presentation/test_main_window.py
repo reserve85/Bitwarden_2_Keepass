@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -11,7 +12,14 @@ from PyQt6.QtCore import QTimer
 
 from app._version import __version__
 from app.application.use_cases.settings import SettingsUseCase
-from app.domain.entities import LogCategory, LogLevel
+from app.domain.entities import (
+    ExportPhase,
+    ExportProgress,
+    ExportRequest,
+    ExportResult,
+    LogCategory,
+    LogLevel,
+)
 from app.presentation.main_window import MainWindow
 from tests.fakes import FakeBwCli, FakeSettings, RecordingLogger
 
@@ -22,6 +30,8 @@ _PAGE_SETTINGS = 1
 _PAGE_LOG = 2
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from PyQt6.QtWidgets import QApplication
 
 
@@ -42,6 +52,7 @@ class _FakeServices:
         )
         self.settings_use_case = SettingsUseCase(self.settings, self.logger)
         self.bw_cli = FakeBwCli()
+        self.bw_warning = lambda _resolved_path: None
         self.login_use_case = object()
         self.export_use_case = object()
         self.check_updates_use_case = object()
@@ -163,3 +174,101 @@ class TestMainWindow:
 
         assert shown
         assert window._stack.currentIndex() == _PAGE_SETTINGS  # Settings page shown
+
+
+class _FlowLoginUseCase:
+    """Mirror of ``BwLoginUseCase.run/close`` (used by ``LoginWorker``)."""
+
+    def __init__(self, session: str = "session-flow") -> None:
+        self.session = session
+        self.closed: list[str] = []
+        self.run_count = 0
+
+    def run(
+        self,
+        _url: str,
+        _email: str,
+        _password: bytearray,
+        _request_totp: object,
+    ) -> str:
+        self.run_count += 1
+        return self.session
+
+    def close(self, session: str) -> None:
+        self.closed.append(session)
+
+
+class _FlowExportUseCase:
+    """Mirror of ``ExportVaultUseCase.run`` (used by ``ExportWorker``)."""
+
+    def __init__(self) -> None:
+        self.requests: list[ExportRequest] = []
+
+    def run(self, request: ExportRequest, progress: object) -> ExportResult:
+        self.requests.append(request)
+        progress(
+            ExportProgress(
+                phase=ExportPhase.DONE,
+                current=1,
+                total=1,
+                message="done",
+                fraction=1.0,
+            ),
+        )
+        return ExportResult(
+            path=str(request.output_folder / "flow.kdbx"),
+            copies=[],
+            source_deleted=False,
+        )
+
+
+@pytest.mark.offscreen
+def test_full_start_export_flow(
+    qapp: QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Click-to-complete chain: start_export -> LoginWorker -> dialogs -> ExportWorker.
+
+    Password dialogs are patched and the use cases are scripted doubles; the bw
+    session must reach the export request and be closed (lock + logout) after
+    the export finishes.
+    """
+    services = _FakeServices()
+    login = _FlowLoginUseCase()
+    export = _FlowExportUseCase()
+    services.login_use_case = login
+    services.export_use_case = export
+    services.settings.set("output.output_folder", str(tmp_path / "out"))
+
+    monkeypatch.setattr(
+        "app.presentation.dialogs.password_dialog.PasswordDialog.get_password",
+        lambda _self: bytearray(b"bw-pw"),
+    )
+    monkeypatch.setattr(
+        "app.presentation.dialogs.confirm_password_dialog.ConfirmPasswordDialog.get_password",
+        lambda _self: bytearray(b"kp-pw"),
+    )
+
+    window = MainWindow(services)
+    window.start_export()
+
+    # Wait for the DEFINITIVE end-of-flow marker (session closed after the
+    # export finished) - `_export_worker` is None both before the login worker
+    # started and after completion, so it alone cannot gate the wait.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not login.closed:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    # Join any still-running worker so a failing assertion can never leave a
+    # QThread alive past the test teardown.
+    for worker in (window._login_worker, window._export_worker):
+        if worker is not None:
+            worker.wait(2000)
+
+    assert login.closed == ["session-flow"]
+    assert login.run_count == 1
+    assert export.requests, "export use case never ran"
+    assert export.requests[0].session == "session-flow"
+    assert export.requests[0].master_password == "kp-pw"

@@ -103,7 +103,7 @@ def load_folders(kp: PyKeePass, folders: list[dict]) -> dict[str | None, KPGroup
     groups_by_id[None] = kp.root_group
 
     for folder in folders:
-        if folder["id"] is not None:
+        if folder.get("id") is not None:
             new_folder: Folder = Folder(folder["id"])
             # regex lifted from https://github.com/bitwarden/jslib/blob/ecdd08624f61ccff8128b7cb3241f39e664e1c7f/common/src/services/folder.service.ts#L108
             folder_name_parts: list[str] = re.sub(

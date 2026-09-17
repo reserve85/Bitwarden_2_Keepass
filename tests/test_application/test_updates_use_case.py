@@ -23,7 +23,8 @@ _SHA256 = hashlib.sha256(_EXE).hexdigest()
 
 def _notes_with_sha256(content: bytes = _EXE) -> str:
     digest = hashlib.sha256(content).hexdigest()
-    return f"Release v1.1.0\nSHA-256: {digest}\nchangelog line"
+    # Matches the exact marker ``release.yml`` writes into every release body.
+    return f"Release v1.1.0\nsha256 of Bitwarden2KeePass.exe: {digest}\nchangelog line"
 
 
 def test_extract_sha256_parses_release_notes() -> None:

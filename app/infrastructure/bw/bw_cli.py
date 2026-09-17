@@ -99,11 +99,76 @@ def _find_winget_bw(configured: str) -> str | None:
     return str(newest)
 
 
+def _run_bw(
+    binary: str,
+    args: tuple[str, ...],
+    *,
+    env: dict[str, str],
+    input_bytes: bytes | bytearray | None = None,
+    text: bool = True,
+) -> subprocess.CompletedProcess:
+    """Run one ``subprocess.run`` against the bw binary.
+
+    ``text=False`` (BwClient, and stdin-feeders like ``bw login``) keeps
+    stdout/stderr as ``bytes`` so the caller decodes them itself.
+    """
+    return subprocess.run(
+        [binary, *args],
+        capture_output=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
+        env=env,
+        input=input_bytes,
+        encoding="utf-8" if text else None,
+        # errors= alone would flip subprocess into text mode and break
+        # bytearray stdin (TypeError: write() argument must be str).
+        errors="replace" if text else None,
+        check=False,  # returncode is inspected by the caller
+    )
+
+
+class _ResolvedBinaryMixin:
+    """Shared bw subprocess plumbing for BwCli and BwClient.
+
+    A bare configured name (``bw``) that only resolves via the winget package
+    folders cannot be spawned directly (FileNotFoundError). On that first
+    signal we resolve the absolute path - PATH lookup, then the winget package
+    folders - cache it and retry exactly once; every later command spawns the
+    resolved binary. ``extra_env`` (e.g. the ``--passwordenv`` variable) is
+    merged into the child environment for this invocation only.
+    """
+
+    _bw_path: str
+    _resolved_bw: str | None
+    _env: dict[str, str]
+
+    def _spawn(
+        self,
+        args: tuple[str, ...],
+        *,
+        input_bytes: bytes | bytearray | None = None,
+        text: bool = True,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run the bw binary, retrying once with a resolved path on FileNotFoundError."""
+        binary = self._resolved_bw or self._bw_path
+        env = {**self._env, **(extra_env or {})}
+        try:
+            return _run_bw(binary, args, env=env, input_bytes=input_bytes, text=text)
+        except FileNotFoundError:
+            if self._resolved_bw is not None:
+                raise  # previously resolved binary has vanished - report it
+            resolved = shutil.which(self._bw_path) or _find_winget_bw(self._bw_path)
+            if resolved is None:
+                raise
+            self._resolved_bw = resolved
+            return _run_bw(resolved, args, env=env, input_bytes=input_bytes, text=text)
+
+
 class BwCliError(RuntimeError):
     """A bw CLI invocation failed; the message never contains secrets."""
 
 
-class BwCli:
+class BwCli(_ResolvedBinaryMixin):
     """Auth commands against the bw CLI.
 
     ``data_folder`` is the app-owned folder that becomes ``BW_DATA_FOLDER`` /
@@ -242,57 +307,6 @@ class BwCli:
             self._run("logout")
 
     # -- subprocess plumbing ---------------------------------------------------
-    def _spawn(
-        self,
-        args: tuple[str, ...],
-        *,
-        input_bytes: bytes | bytearray | None,
-        text: bool,
-        extra_env: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess:
-        """Run the bw binary, retrying once with a resolved path on FileNotFoundError.
-
-        ``resolve_and_validate`` may locate a winget-installed bw.exe (not on
-        PATH), but spawning the bare configured name still raises
-        FileNotFoundError. On that signal we resolve once - PATH lookup, then
-        the winget package folders - and cache the absolute path, so the first
-        command works and every later command spawns the resolved binary.
-        ``extra_env`` (e.g. the ``--passwordenv`` variable) is merged into the
-        child environment for this invocation only.
-        """
-        binary = self._resolved_bw or self._bw_path
-        env = {**self._env, **(extra_env or {})}
-        try:
-            return subprocess.run(
-                [binary, *args],
-                capture_output=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                env=env,
-                input=input_bytes,
-                encoding="utf-8" if text else None,
-                # errors= alone would flip subprocess into text mode and break
-                # bytearray stdin (TypeError: write() argument must be str).
-                errors="replace" if text else None,
-                check=False,  # returncode is inspected below
-            )
-        except FileNotFoundError:
-            if self._resolved_bw is not None:
-                raise  # previously resolved binary has vanished - report it
-            resolved = shutil.which(self._bw_path) or _find_winget_bw(self._bw_path)
-            if resolved is None:
-                raise
-            self._resolved_bw = resolved
-            return subprocess.run(
-                [resolved, *args],
-                capture_output=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                env=env,
-                input=input_bytes,
-                encoding="utf-8" if text else None,
-                errors="replace" if text else None,
-                check=False,
-            )
-
     def _run(
         self,
         *args: str,
@@ -339,7 +353,7 @@ class BwCli:
         return result.stderr or ""
 
 
-class BwClient:
+class BwClient(_ResolvedBinaryMixin):
     """Vault data commands (old-project port) - session passed via ``BW_SESSION``.
 
     Never passes the session on argv (argv is visible to other local users).
@@ -355,41 +369,9 @@ class BwClient:
             "BW_CONFIG_FILE": str(data_folder / "config.json"),
         }
 
-    def _spawn(self, args: tuple[str, ...]) -> subprocess.CompletedProcess:
-        """Run the bw binary, retrying once with a resolved path on FileNotFoundError.
-
-        A bare configured name (``bw``) that resolves only via the winget
-        package folders cannot be found by ``shutil.which``; spawning it raises
-        FileNotFoundError and is retried with the resolved absolute path. The
-        resolved path is cached, so later commands spawn it directly.
-        """
-        binary = self._resolved_bw or self._bw_path
-        try:
-            return subprocess.run(
-                [binary, *args],
-                capture_output=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                env=self._env,
-                check=False,  # returncode is inspected below
-            )
-        except FileNotFoundError:
-            if self._resolved_bw is not None:
-                raise  # previously resolved binary has vanished - report it
-            resolved = shutil.which(self._bw_path) or _find_winget_bw(self._bw_path)
-            if resolved is None:
-                raise
-            self._resolved_bw = resolved
-            return subprocess.run(
-                [resolved, *args],
-                capture_output=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                env=self._env,
-                check=False,
-            )
-
     def _check_output(self, *args: str, binary: bool = False) -> str | bytes:
         try:
-            result = self._spawn(args)
+            result = self._spawn(args, text=False)
         except subprocess.TimeoutExpired as exc:
             message = f"bw command timed out after {COMMAND_TIMEOUT_SECONDS} s."
             raise BwCliError(message) from exc
@@ -428,11 +410,30 @@ class BwClient:
         return raw if isinstance(raw, bytes) else raw.encode("utf-8")
 
 
+def _in_winget_package_dir(path: Path) -> bool:
+    r"""True when *path* sits below a ``Microsoft\WinGet`` area.
+
+    The winget fallback (:func:`_find_winget_bw`) deliberately resolves into
+    these folders, so the PATH-hijack warning must cover them too: ``bw.exe``
+    in ``%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\...`` is user-writable,
+    and a fake planted there with a newer mtime would otherwise be silently
+    preferred by the "newest wins" selection.
+    """
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if part.lower() != "winget":
+            continue
+        if index > 0 and parts[index - 1].lower() == "microsoft":
+            return True
+    return False
+
+
 def user_writable_warning(resolved_path: Path) -> str | None:
     """PATH-hijack guard: warn when the resolved binary lives in a user-writable spot.
 
-    Downloads / temp dir / process cwd are exactly the places an attacker can
-    drop a fake ``bw`` that gets picked up first on PATH. Returns a human
+    Downloads / temp dir / process cwd / the WinGet package folders are exactly
+    the places an attacker can drop a fake ``bw`` that gets picked up first on
+    PATH (or by the winget fallback's newest-mtime selection). Returns a human
     warning string, or ``None`` when the location looks safe. This is a warning
     only - the admin may have deliberately installed the CLI there.
     """
@@ -456,6 +457,12 @@ def user_writable_warning(resolved_path: Path) -> str | None:
                 f"bw was resolved to {resolved_path} (Downloads). Downloaded "
                 "files are user-writable but are NOT a safe install location - "
                 "install the Bitwarden CLI into a protected dir instead."
+            )
+        if _in_winget_package_dir(parent):
+            return (
+                f"bw was resolved to {resolved_path} (the WinGet package folder). "
+                "Files there are user-writable and can be replaced by other "
+                "software - install the Bitwarden CLI into a protected dir instead."
             )
     except OSError:
         return None

@@ -74,6 +74,13 @@ The app is a **security-focused** PyQt6 desktop application:
    installer, no registry entries; the only runtime folders are the app-owned
    locations described in `SECURITY.md`.
 
+   > **Important:** run the EXE from a **user-writable folder**. The app keeps
+   > its `config/` (settings), `output/` (exports) and `bw_data/` (per-export
+   > bw CLI state) folders plus a lock file next to the EXE. In a read-only
+   > location (e.g. `C:\Program Files`) it cannot create them: startup then
+   > shows "already running / folder is not writable" and aborts. Put the EXE
+   > in e.g. `C:\Tools\Bitwarden2KeePass` or your OneDrive folder instead.
+
 ### From source
 
 ```powershell

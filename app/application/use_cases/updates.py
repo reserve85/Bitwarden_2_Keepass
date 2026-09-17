@@ -24,7 +24,11 @@ if TYPE_CHECKING:
     from app.application.ports import LoggerPort, SettingsPort, UpdatePort
 
 #: The release body publishes the EXE hash with this marker (case-insensitive).
-_SHA256_PATTERN = re.compile(r"(?i)sha[-_]?256\s*[:=]\s*([0-9a-f]{64})")
+#: Anchored to the file name so a release note that gains a SECOND sha256 (e.g.
+#: for the portable ZIP) cannot shift the gate onto the wrong asset.
+_SHA256_PATTERN = re.compile(
+    r"(?i)sha[-_]?256\s+of\s+bitwarden2keepass\b[-\w.]*\.exe\s*[:=]\s*([0-9a-f]{64})",
+)
 #: Size of a fresh copy when hashing is avoided; 1 MiB chunks keep memory flat.
 _SHA256_CHUNK_BYTES = 1 << 20
 

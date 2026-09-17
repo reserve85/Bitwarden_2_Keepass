@@ -63,12 +63,18 @@ def test_get_totp_parses_query_params() -> None:
     assert item.get_totp() == ("ABCDEFGHIJ", "60;8")
 
 
-def test_get_totp_falls_back_to_full_uri() -> None:
+def test_get_totp_uri_without_secret_returns_none() -> None:
+    # An otpauth:// URI without a secret= param cannot produce a TOTP seed;
+    # storing the whole URI would silently break code validation in KeePass.
     totp = "otpauth://totp/Example:user"
     item = _login_item(totp=totp)
-    secret, settings = item.get_totp()
-    assert secret == totp
-    assert settings == "30;6"
+    assert item.get_totp() == (None, None)
+
+
+def test_get_totp_plain_raw_secret_is_kept() -> None:
+    # A legacy raw secret (no otpauth scheme) is used as the seed as-is.
+    item = _login_item(totp="JBSWY3DPEHPK3PXP")
+    assert item.get_totp() == ("JBSWY3DPEHPK3PXP", "30;6")
 
 
 def test_get_totp_without_totp_returns_none() -> None:

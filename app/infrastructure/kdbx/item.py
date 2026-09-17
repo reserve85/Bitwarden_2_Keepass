@@ -158,11 +158,21 @@ class Item:
         if not self.item["login"]["totp"]:
             return None, None
 
-        params = urlsplit(self.item["login"]["totp"]).query
-        params = dict(parse_qsl(params))
-        period = params.get("period", 30)
-        digits = params.get("digits", 6)
-        secret = params.get("secret", self.item["login"]["totp"])
+        raw = self.item["login"]["totp"]
+        parsed = urlsplit(raw)
+        query = dict(parse_qsl(parsed.query))
+        if parsed.scheme:
+            # Full otpauth:// URI. A missing secret= query param means we cannot
+            # produce a seed - storing the whole URI would silently break code
+            # validation in KeePass, so report "no TOTP" instead.
+            secret = query.get("secret")
+            if not secret:
+                return None, None
+        else:
+            # Legacy/plain raw secret (no otpauth scheme) - use it as-is.
+            secret = raw
+        period = query.get("period", 30)
+        digits = query.get("digits", 6)
 
         return secret, f"{period};{digits}"
 

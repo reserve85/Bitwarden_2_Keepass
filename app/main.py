@@ -33,7 +33,7 @@ from app.application.use_cases.updates import (
     CheckForUpdatesUseCase,
 )
 from app.domain.entities import LogCategory, LogLevel
-from app.infrastructure.bw.bw_cli import BwCli, BwClient
+from app.infrastructure.bw.bw_cli import BwCli, BwClient, user_writable_warning
 from app.infrastructure.config.config_repository import YamlAppSettings
 from app.infrastructure.config.security import KEY_FILENAME, TokenCrypto
 from app.infrastructure.kdbx.kdbx_writer import KdbxWriter
@@ -90,6 +90,9 @@ def build_services() -> Services:
         logger=logger,
         settings_use_case=settings_use_case,
         bw_cli=bw_cli,
+        # Presentation reads the PATH-hijack guard through this seam; it never
+        # imports infrastructure itself.
+        bw_warning=user_writable_warning,
         login_use_case=login_use_case,
         export_use_case=None,  # filled by _wire_export_use_case (needs the window)
         check_updates_use_case=check_updates_use_case,
@@ -190,14 +193,20 @@ def main() -> int:
             f"Could not clean old update files: {redact_secrets(str(exc))}",
         )
 
-    # Single-instance guard (best-effort; a stale lock file is not an error).
+    # Single-instance guard + writable-folder check (best-effort; the two
+    # failure modes are indistinguishable on Windows: either another instance
+    # holds the lock, or the app folder is not writable enough to create one).
     lock = QLockFile(str(lock_file()))
     lock.setStaleLockTime(30_000)
     if not lock.tryLock(50):
         QMessageBox.information(
             None,
             "Bitwarden 2 KeePass",
-            "Bitwarden 2 KeePass is already running.",
+            "Bitwarden 2 KeePass is already running, or its folder is not "
+            "writable.\n"
+            "\n"
+            "Make sure the app runs from a user-writable folder (not Program "
+            "Files or a read-only mount), then start it again.",
         )
         return 0
 

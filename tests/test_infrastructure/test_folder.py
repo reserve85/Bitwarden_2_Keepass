@@ -70,6 +70,16 @@ def test_load_folders_skips_folder_without_name(tmp_path: Path) -> None:
     assert set(groups) == {None}
 
 
+def test_load_folders_tolerates_folder_without_id(tmp_path: Path) -> None:
+    """A record with a name but no "id" key must not crash the export."""
+    db_path = tmp_path / "test.kdbx"
+    kp = create_database(str(db_path), password="test")
+    groups = load_folders(kp, [{"name": "no-id-here"}])
+
+    assert groups[None].name == kp.root_group.name
+    assert len(groups) == 1  # only the root group was mapped
+
+
 def test_load_folders_reuses_existing_group_on_name_collision(tmp_path: Path) -> None:
     """Regression: a name collision used to raise and abort the whole export."""
     db_path = tmp_path / "test.kdbx"

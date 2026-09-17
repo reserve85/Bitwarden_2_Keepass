@@ -27,6 +27,7 @@ from app.domain.entities import (
     LogCategory,
     LogLevel,
 )
+from app.domain.security import redact_secrets
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -98,10 +99,12 @@ class ExportVaultUseCase:
                 self._kdbx.add_entry(kp, groups, item)
             except Exception as exc:
                 # Only the name/id is logged - never notes, passwords or fields.
+                # The exception text is ALSO redacted (an error raised deep in a
+                # writer could embed a payload fragment; defense-in-depth).
                 self._logger.log(
                     LogCategory.EXPORT,
                     LogLevel.WARNING,
-                    f"Skipping item {name!r} ({item_id}): {exc}",
+                    f"Skipping item {name!r} ({item_id}): {redact_secrets(str(exc))}",
                 )
 
         self._emit(progress, ExportPhase.SAVE, 1, 1, "Saving KeePass database")

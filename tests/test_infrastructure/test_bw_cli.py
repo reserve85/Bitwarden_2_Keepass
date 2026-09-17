@@ -563,3 +563,15 @@ def test_user_writable_warning_flags_downloads(
 ) -> None:
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     assert user_writable_warning(tmp_path / "Downloads" / "bw.exe") is not None
+
+
+def test_user_writable_warning_flags_winget_packages() -> None:
+    """The winget fallback resolves here - the PATH-hijack warning must match."""
+    path = Path(
+        "C:/Users/test/AppData/Local/Microsoft/WinGet/Packages/Bitwarden/Bitwarden.CLI/bw.exe",
+    )
+    assert user_writable_warning(path) is not None
+
+
+def test_user_writable_warning_silent_for_program_files() -> None:
+    assert user_writable_warning(Path("C:/Program Files/Bitwarden/bw.exe")) is None

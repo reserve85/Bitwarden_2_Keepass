@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
 
 from app._version import __version__
 from app.domain.entities import ExportRequest, LogCategory, LogLevel
-from app.infrastructure.bw.bw_cli import BwCli, user_writable_warning
 from app.presentation.dialogs.confirm_password_dialog import ConfirmPasswordDialog
 from app.presentation.dialogs.error_dialog import ErrorDialog
 from app.presentation.dialogs.password_dialog import PasswordDialog
@@ -43,8 +42,6 @@ if TYPE_CHECKING:
 
     from app.domain.entities import ExportResult
 
-_UPDATE_CHECK_DELAY_MS = 2000
-#: Ceiling for the worker-thread overwrite prompt (see ``_OverwritePrompt``).
 _PROMPT_TIMEOUT_SECONDS = 60
 
 
@@ -180,7 +177,9 @@ class MainWindow(QMainWindow):
         settings = self._services.settings_use_case.get_all()
         if not bool(settings.get("update.check_at_startup", True)):
             return
-        QTimer.singleShot(_UPDATE_CHECK_DELAY_MS, self.start_update_check)
+        # Delay source is the composition root (single definition, see main.py).
+        delay_ms = int(getattr(self._services, "update_check_delay_ms", 2000))
+        QTimer.singleShot(delay_ms, self.start_update_check)
 
     def start_update_check(self) -> None:
         if self._update_check_worker is not None:
@@ -272,14 +271,17 @@ class MainWindow(QMainWindow):
             return
 
         # bw path + version shape + PATH-hijack warning (never a hard error).
-        bw_cli: BwCli = self._services.bw_cli
+        # The bw_cli and the warning callable arrive via services (duck-typed):
+        # presentation never imports infrastructure.
+        bw_cli = self._services.bw_cli
         try:
             resolved = bw_cli.resolve_and_validate()
         except Exception as exc:
             ErrorDialog(str(exc), parent=self).exec()
             self._show_page(1)
             return
-        warning = user_writable_warning(resolved)
+        warn = getattr(self._services, "bw_warning", None)
+        warning = warn(resolved) if callable(warn) else None
         if warning:
             self._log(warning, LogLevel.WARNING)
 
