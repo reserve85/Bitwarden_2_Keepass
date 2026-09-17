@@ -1,0 +1,9 @@
+PyQt6>=6.6.0
+pykeepass>=4.1,<5
+PyYAML>=6.0
+lxml>=4.9
+cryptography>=41.0
+# github-updater is pinned to the full 40-hex commit SHA of tag v1.2.2
+# (tags can be force-moved; supply-chain hardening). CI fails when a "@v..."
+# tag ref is present instead of a SHA.
+github-updater @ git+https://github.com/reserve85/github_updater.git@5c26718150e676a4f4cf75f15b60f03db7ea96b1

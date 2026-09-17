@@ -1,0 +1,56 @@
+[project]
+name = "bitwarden-2-keepass"
+version = "0.1.0"
+description = "Security-focused PyQt6 desktop app exporting the full Bitwarden/Vaultwarden vault via the official bw CLI into fresh KeePass kdbx files."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.ruff]
+# reference/old-project style, widened to 100 columns.
+line-length = 100
+indent-width = 4
+
+target-version = "py311"
+
+[tool.ruff.lint]
+# Same selection as bitwarden-to-keepass.
+select = ["ALL"]
+ignore = [
+    "D",
+    "TRY003",
+    "EM101",
+    "BLE001",
+    "S603",
+    "A002",
+    "C901",
+    "COM812",  # trailing-comma rule conflicts with the ruff formatter
+    "CPY001",  # copyright headers: attribution lives in the repo LICENSE
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "INP001",  # nested test dirs intentionally namespace packages (no __init__.py)
+    "PT009",   # unittest asserts are used on purpose
+    "PT011",  # assertRaises instead of pytest.raises
+    "PT027",  # assertRaises as a context manager instead of pytest.raises
+    "S101",   # pytest-style bare asserts in tests
+    "S105",   # dummy secrets in test fixtures
+    "S106",   # dummy password arguments in test fixtures
+    "S107",   # hardcoded dummy passwords in test fixtures
+]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "offscreen: GUI tests that require QT_QPA_PLATFORM=offscreen",
+]

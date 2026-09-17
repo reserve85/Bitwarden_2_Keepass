@@ -1,0 +1,8 @@
+-r requirements.txt
+pytest>=7.4.0
+pytest-cov>=4.1.0
+ruff>=0.1.0
+pyinstaller>=6.0
+# setuptools: patch PYSEC-2026-3447 (pip-audit full-env scan flags the
+# runner-official setuptools 79.x otherwise). Build tooling, not a runtime dep.
+setuptools>=83.0.0

@@ -1,0 +1,48 @@
+name: Security
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets-and-audit:
+    name: gitleaks + pip-audit + bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history - gitleaks must see every commit
+      - name: Install gitleaks
+        run: |
+          # Asset + sha256 pinned to the gitleaks_8.24.3 release checksums file.
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          echo "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c  /tmp/gitleaks.tar.gz" | sha256sum --check -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks --version
+      - name: Run gitleaks (no --max-count cap - every finding surfaces)
+        # gitleaks v8 flags (confirmed against `gitleaks --help` in 8.24.3):
+        #   git subcommand takes the path positionally; --redact and --exit-code
+        #   take values (redact=100, exit-code=1); --no-banner/--verbose are bools.
+        run: |
+          gitleaks git . --redact=100 --exit-code=1 --no-banner --verbose
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies (full environment)
+        run: |
+          python -m pip install -r requirements-dev.txt pip-audit bandit
+      - name: pip-audit - runtime requirements
+        run: python -m pip_audit -r requirements.txt
+      - name: pip-audit - full installed environment
+        run: python -m pip_audit
+      - name: bandit - static security scan
+        # Gate on MEDIUM/HIGH severity only: the LOW-severity findings
+        # (B105/B106/B107 naming heuristics on by-design password handling,
+        # B404/B603 subprocess use - the ruff S603 ignore covers the same
+        # stance) are intentional for a secrets-handling app.
+        run: python -m bandit -r app/ -q -ll

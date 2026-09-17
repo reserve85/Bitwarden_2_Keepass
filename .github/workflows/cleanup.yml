@@ -1,0 +1,72 @@
+name: Cleanup old runs and artifacts
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # daily 01:00 UTC (reference shape)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    name: Delete stale runs / artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete workflow runs older than 3 days (keep newest 5)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+            const cutoff = Date.now() - THREE_DAYS_MS;
+            const runs = (
+              await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+              })
+            ).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+
+            let deleted = 0;
+            // Keep the 5 newest runs unconditionally, then drop stale ones.
+            for (let i = runs.length - 1; i >= 5; i--) {
+              const run = runs[i];
+              if (Date.parse(run.created_at) < cutoff) {
+                await github.rest.actions.deleteWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: run.id,
+                });
+                deleted++;
+              }
+            }
+            console.log(`Deleted ${deleted} stale workflow run(s).`);
+      - name: Delete artifacts older than 3 days (keep newest 3)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+            const cutoff = Date.now() - THREE_DAYS_MS;
+            const artifacts = (
+              await github.paginate(github.rest.actions.listArtifactsForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+              })
+            ).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+
+            let deleted = 0;
+            // Keep the 3 newest artifacts unconditionally, then drop stale ones.
+            for (let i = artifacts.length - 1; i >= 3; i--) {
+              const artifact = artifacts[i];
+              if (Date.parse(artifact.created_at) < cutoff) {
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+                deleted++;
+              }
+            }
+            console.log(`Deleted ${deleted} stale artifact(s).`);

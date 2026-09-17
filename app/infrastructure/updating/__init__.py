@@ -1,0 +1,1 @@
+"""Self-update adapter - thin delegation to ``github_updater``."""
