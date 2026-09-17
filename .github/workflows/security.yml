@@ -24,8 +24,9 @@ jobs:
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks --version
       - name: Run gitleaks (no --max-count cap - every finding surfaces)
+        # gitleaks v8 subcommands take the path as a positional arg, not --path.
         run: |
-          gitleaks git --path=. --redact --exit-code --no-banner --verbose
+          gitleaks git . --redact --exit-code --no-banner --verbose
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
