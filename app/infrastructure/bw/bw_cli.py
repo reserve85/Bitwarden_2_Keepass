@@ -36,6 +36,12 @@ from app.domain.entities import TwoFactorRequired  # re-exported for adapter com
 from app.infrastructure.secure import redact_secrets
 
 COMMAND_TIMEOUT_SECONDS = 600  # plan-internal constant; bw commands are slow
+#: Windows creation flags for EVERY ``bw`` spawn (single funnel: ``_run_bw``).
+#: The packaged GUI is built ``--windowed`` (console-less), so without this
+#: flag Windows allocates a fresh, visibly flashing console window for each bw
+#: child (version check, config, login, sync, lists, one per attachment, ...).
+#: ``0`` keeps the kwarg valid on POSIX, where a non-zero value is rejected.
+_NO_CONSOLE_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 #: Expected shape of ``bw --version`` output. Newer CLI versions print a bare
 #: version ("2026.7.0"), older ones "Bitwarden CLI v2024.11.0". Anything else
@@ -123,6 +129,7 @@ def _run_bw(
         # bytearray stdin (TypeError: write() argument must be str).
         errors="replace" if text else None,
         check=False,  # returncode is inspected by the caller
+        creationflags=_NO_CONSOLE_WINDOW,  # no visible console per bw child
     )
 
 

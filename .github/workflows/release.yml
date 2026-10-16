@@ -34,7 +34,10 @@ jobs:
         run: python -m pytest tests/ -q
       - name: Build one-file EXE
         run: |
-          python -m PyInstaller --onefile --windowed --name Bitwarden2KeePass --icon app/resources/Icon.ico --hidden-import github_updater app/main.py
+          # --collect-data pykeepass: package data (blank_database.kdbx) that
+          # create_database() copies at runtime - PyInstaller bundles modules
+          # only, so the export would fail with FileNotFoundError without it.
+          python -m PyInstaller --onefile --windowed --name Bitwarden2KeePass --icon app/resources/Icon.ico --hidden-import github_updater --collect-data pykeepass app/main.py
       - name: Verify EXE and report size
         shell: pwsh
         run: |

@@ -541,6 +541,30 @@ def test_bw_client_error_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "***" in str(exc_info.value)
 
 
+# -- console window suppression ------------------------------------------------
+
+
+def test_bw_spawns_carry_no_console_window_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Every bw child must hide its console (the packaged GUI has none).
+
+    The ``--windowed`` build spawns the console ``bw`` binary; without
+    ``CREATE_NO_WINDOW`` Windows allocates a fresh visible console window per
+    command, which flashes all over the screen during an export.
+    """
+    expected = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+    cli_calls = _fake_run(monkeypatch, [_result(stdout=_VERSION)])
+    BwCli("bw", tmp_path).resolve_and_validate()
+    client_calls = _fake_run(monkeypatch, [_result(stdout=b"[]")])
+    BwClient("bw", "session-key-xyz", tmp_path).list_folders()
+
+    assert [call["kwargs"]["creationflags"] for call in cli_calls] == [expected]
+    assert [call["kwargs"]["creationflags"] for call in client_calls] == [expected]
+
+
 # -- PATH-hijack guard --------------------------------------------------------
 
 
