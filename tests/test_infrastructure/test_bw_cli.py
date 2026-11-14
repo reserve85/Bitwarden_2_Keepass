@@ -30,6 +30,17 @@ from app.infrastructure.bw.bw_cli import (
 
 _VERSION = "Bitwarden CLI v2024.11.0"
 
+#: What the faked PATH lookup resolves a bare "bw" to. The adapter only ever
+#: spawns the resolved ABSOLUTE path - never the bare name.
+_BW = str(Path("/usr/bin/bw").absolute())
+
+
+@pytest.fixture(autouse=True)
+def _bw_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default: ``bw`` is found on PATH (no real bw installation is consulted)."""
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: "/usr/bin/bw")
+
+
 #: A stale interactive session is kicked out and the login retried exactly once.
 _RETRY_COUNT = 2
 
@@ -77,11 +88,12 @@ def test_resolve_and_validate_finds_and_checks_version(
 
     resolved = BwCli("bw", tmp_path).resolve_and_validate()
 
-    assert resolved == Path("/usr/bin/bw")
-    assert calls[0]["cmd"] == ["bw", "--version"]
+    assert resolved == Path(_BW)
+    assert calls[0]["cmd"] == [_BW, "--version"]
     env = calls[0]["kwargs"]["env"]
-    assert env["BW_DATA_FOLDER"] == str(tmp_path)
-    assert env["BW_CONFIG_FILE"] == str(tmp_path / "config.json")
+    # The variable the bw CLI really reads - isolates it from the user's profile.
+    assert env["BITWARDENCLI_APPDATA_DIR"] == str(tmp_path)
+    assert "BW_DATA_FOLDER" not in env
     assert env["NO_COLOR"] == "1"
     assert calls[0]["kwargs"]["timeout"] == COMMAND_TIMEOUT_SECONDS
 
@@ -123,7 +135,7 @@ def test_resolve_and_validate_winget_fallback_finds_bw_exe(
     resolved = BwCli("bw", tmp_path).resolve_and_validate()
 
     assert resolved == bw_exe
-    assert recorded["cmd"] == ["bw", "--version"]
+    assert recorded["cmd"] == [str(bw_exe), "--version"]
 
 
 def test_resolve_and_validate_winget_fallback_picks_newest(
@@ -179,12 +191,12 @@ def test_resolve_and_validate_wrong_version_shape_raises(
         BwCli("bw", tmp_path).resolve_and_validate()
 
 
-def test_resolve_and_validate_retries_bare_name_with_resolved_binary(
+def test_bare_name_is_never_spawned_only_the_resolved_binary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Spawning bare "bw" raises FileNotFoundError; the probe must retry with the
-    resolved (winget) path - regression for "bw CLI not found: bw."."""
+    """A bare "bw" handed to the OS loader would be searched in the app and
+    working directory first - every spawn must use the resolved absolute path."""
     winget = tmp_path / "localappdata" / "Microsoft" / "WinGet"
     package_dir = winget / "Packages" / "Bitwarden.CLI_Microsoft.Winget.Source_abc12345"
     package_dir.mkdir(parents=True)
@@ -194,49 +206,90 @@ def test_resolve_and_validate_retries_bare_name_with_resolved_binary(
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
         calls.append(cmd)
-        if cmd[0] == "bw":
-            raise FileNotFoundError("bw")
-        return _result(stdout=_VERSION)
+        return _result(stdout=_VERSION if "--version" in cmd else b"[]")
 
     monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
     monkeypatch.setattr(bw_module.subprocess, "run", fake_run)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
     monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
 
-    resolved = BwCli("bw", tmp_path).resolve_and_validate()
+    assert BwCli("bw", tmp_path).resolve_and_validate() == bw_exe
+    assert BwClient("bw", "s", tmp_path).list_folders() == []
 
-    assert resolved == bw_exe
-    assert calls == [["bw", "--version"], [str(bw_exe), "--version"]]
+    assert calls == [[str(bw_exe), "--version"], [str(bw_exe), "list", "folders"]]
 
 
-def test_bw_client_retries_bare_name_with_resolved_binary(
+def test_working_directory_hit_is_not_used_for_a_bare_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """BwClient data commands must spawn the resolved binary when the bare
-    configured name cannot be spawned (winget installs are not on PATH)."""
-    winget = tmp_path / "localappdata" / "Microsoft" / "WinGet"
-    package_dir = winget / "Packages" / "Bitwarden.CLI_Microsoft.Winget.Source_abc12345"
-    package_dir.mkdir(parents=True)
-    bw_exe = package_dir / "bw.exe"
-    bw_exe.write_bytes(b"fake-binary")
-    calls: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
-        calls.append(cmd)
-        if cmd[0] == "bw":
-            raise FileNotFoundError("bw")
-        return _result(stdout=b"[]")
-
-    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: None)
-    monkeypatch.setattr(bw_module.subprocess, "run", fake_run)
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    """A bw.exe that merely lies in the working directory must not be picked up."""
+    planted = tmp_path / "bw.exe"
+    planted.write_bytes(b"planted")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "elsewhere"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "no-winget"))
     monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "no-winget"))
+    monkeypatch.setattr(bw_module.shutil, "which", lambda _name: str(planted))
 
-    client = BwClient("bw", "s", Path())
+    with pytest.raises(BwCliError, match="not found"):
+        BwCli("bw", tmp_path / "data").resolve_and_validate()
 
-    assert client.list_folders() == []
-    assert calls == [["bw", "list", "folders"], [str(bw_exe), "list", "folders"]]
+
+def test_explicit_path_is_used_as_is(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    explicit = tmp_path / "tools" / "bw.exe"
+    explicit.parent.mkdir()
+    explicit.write_bytes(b"fake-binary")
+    calls = _fake_run(monkeypatch, [_result(stdout=_VERSION)])
+
+    resolved = BwCli(str(explicit), tmp_path / "data").resolve_and_validate()
+
+    assert resolved == explicit.resolve()
+    assert calls[0]["cmd"][0] == str(explicit.resolve())
+
+
+def test_bw_path_callable_is_re_read_on_every_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A path changed in Settings must apply without restarting the app."""
+    first = tmp_path / "a" / "bw.exe"
+    second = tmp_path / "b" / "bw.exe"
+    for binary in (first, second):
+        binary.parent.mkdir()
+        binary.write_bytes(b"fake-binary")
+    current = {"path": str(first)}
+    calls = _fake_run(monkeypatch, [_result(stdout=_VERSION), _result(stdout=_VERSION)])
+    cli = BwCli(lambda: current["path"], tmp_path / "data")
+
+    cli.resolve_and_validate()
+    current["path"] = str(second)
+    cli.resolve_and_validate()
+
+    assert [call["cmd"][0] for call in calls] == [str(first.resolve()), str(second.resolve())]
+
+
+def test_data_folder_is_created_before_every_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The app wipes the folder at startup/shutdown; bw needs it to exist."""
+    data = tmp_path / "bw_data"
+    _fake_run(monkeypatch, [_result(stdout=_VERSION)])
+
+    BwCli("bw", data).resolve_and_validate()
+
+    assert data.is_dir()
+
+
+def test_login_without_session_output_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _fake_run(monkeypatch, _login_responses(_result(stdout="\n")))
+
+    with pytest.raises(BwCliError, match="no session"):
+        BwCli("bw", tmp_path).login("user@example.com", bytearray(b"pw"))
 
 
 def test_run_feeds_bytearray_password_in_binary_mode(tmp_path: Path) -> None:
@@ -465,10 +518,10 @@ def test_bw_client_session_via_env_never_argv(
     client = BwClient("bw", "session-key-xyz", tmp_path)
 
     assert client.list_folders() == []
-    assert recorded["cmd"] == ["bw", "list", "folders"]
+    assert recorded["cmd"] == [_BW, "list", "folders"]
     assert recorded["env"]["BW_SESSION"] == "session-key-xyz"
     assert "session-key-xyz" not in "|".join(recorded["cmd"])
-    assert recorded["env"]["BW_DATA_FOLDER"] == str(tmp_path)
+    assert recorded["env"]["BITWARDENCLI_APPDATA_DIR"] == str(tmp_path)
 
 
 def test_bw_client_sync_runs_sync_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -482,7 +535,7 @@ def test_bw_client_sync_runs_sync_command(monkeypatch: pytest.MonkeyPatch, tmp_p
     client = BwClient("bw", "session-key-xyz", tmp_path)
 
     client.sync()
-    assert recorded["cmd"] == ["bw", "sync"]
+    assert recorded["cmd"] == [_BW, "sync"]
 
 
 def test_bw_client_list_items_parses_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -493,7 +546,7 @@ def test_bw_client_list_items_parses_json(monkeypatch: pytest.MonkeyPatch) -> No
         lambda *_args, **_kwargs: _result(stdout=json.dumps(payload).encode()),
     )
 
-    client = BwClient("bw", "s", Path())
+    client = BwClient("bw", "s", Path(tempfile.mkdtemp()))
     assert client.list_items() == payload
 
 
@@ -506,14 +559,14 @@ def test_bw_client_get_attachment_returns_bytes(monkeypatch: pytest.MonkeyPatch)
         return _result(stdout=payload)
 
     monkeypatch.setattr(bw_module.subprocess, "run", fake)
-    client = BwClient("bw", "s", Path())
+    client = BwClient("bw", "s", Path(tempfile.mkdtemp()))
 
     assert client.get_attachment("item-1", "att-1") == payload
     # `--raw` keeps the bytes on stdout - without it the modern uniclient CLI
     # writes the attachment FILE into the working directory ("attachments in
     # the root" bug).
     assert recorded["cmd"] == [
-        "bw",
+        _BW,
         "get",
         "attachment",
         "att-1",
@@ -532,7 +585,7 @@ def test_bw_client_error_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
             stderr=b"session has expired password=hunter2pleasehide",
         ),
     )
-    client = BwClient("bw", "s", Path())
+    client = BwClient("bw", "s", Path(tempfile.mkdtemp()))
 
     with pytest.raises(BwCliError) as exc_info:
         client.list_folders()
@@ -589,12 +642,12 @@ def test_user_writable_warning_flags_downloads(
     assert user_writable_warning(tmp_path / "Downloads" / "bw.exe") is not None
 
 
-def test_user_writable_warning_flags_winget_packages() -> None:
-    """The winget fallback resolves here - the PATH-hijack warning must match."""
+def test_user_writable_warning_silent_for_winget_packages() -> None:
+    """winget is the documented install path - it must not warn on every export."""
     path = Path(
         "C:/Users/test/AppData/Local/Microsoft/WinGet/Packages/Bitwarden/Bitwarden.CLI/bw.exe",
     )
-    assert user_writable_warning(path) is not None
+    assert user_writable_warning(path) is None
 
 
 def test_user_writable_warning_silent_for_program_files() -> None:

@@ -81,7 +81,9 @@ class KdbxPort(Protocol):
         kp: PyKeePass,
         groups_by_id: dict[str | None, KPGroup],
         item: Item | dict,
-    ) -> None: ...
+    ) -> list[str]:
+        """Write one item; returns secret-free notices (empty = lossless)."""
+        ...
 
     def save(self, kp: PyKeePass, path: Path) -> None: ...
 
@@ -119,17 +121,14 @@ class SettingsPort(Protocol):
 class UpdatePort(Protocol):
     """Self-update pipeline (implemented by ``GithubUpdateAdapter``)."""
 
-    def check(self, token: str = "") -> dict: ...
+    def check(self) -> dict: ...
 
     def download(
         self,
         url: str,
-        token: str = "",
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> str: ...
 
     def apply(self, downloaded: Path) -> bool: ...
-
-    def restart(self) -> None: ...
 
     def clean_old_files(self) -> None: ...

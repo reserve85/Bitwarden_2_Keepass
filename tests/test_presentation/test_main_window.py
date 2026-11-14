@@ -47,7 +47,6 @@ class _FakeServices:
                 "output.target_folders": [],
                 "output.delete_after_copy": False,
                 "update.check_at_startup": True,
-                "update.token": None,
             },
         )
         self.settings_use_case = SettingsUseCase(self.settings, self.logger)

@@ -21,7 +21,7 @@ from app.domain.entities import LogCategory, LogLevel
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from app.application.ports import LoggerPort, SettingsPort, UpdatePort
+    from app.application.ports import LoggerPort, UpdatePort
 
 #: The release body publishes the EXE hash with this marker (case-insensitive).
 #: Anchored to the file name so a release note that gains a SECOND sha256 (e.g.
@@ -48,27 +48,33 @@ def _sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
+def _checked(port: UpdatePort) -> dict:
+    """Run the release check; a reported failure becomes an exception.
+
+    The updater library reports network/parsing problems in ``error`` instead
+    of raising - treating that as "no update" would tell an offline user that
+    they are up to date.
+    """
+    result = port.check()
+    error = str(result.get("error") or "")
+    if error:
+        message = f"Could not check for updates: {error}"
+        raise RuntimeError(message)
+    return result
+
+
 class CheckForUpdatesUseCase:
-    def __init__(
-        self,
-        port: UpdatePort,
-        settings: SettingsPort,
-        logger: LoggerPort,
-        token_decrypt: Callable[[str], str] | None = None,
-    ) -> None:
+    def __init__(self, port: UpdatePort, logger: LoggerPort) -> None:
         self._port = port
-        self._settings = settings
         self._logger = logger
-        #: Injected by the composition root; decrypts an optional stored token
-        #: without the application layer importing infrastructure.
-        self._token_decrypt = token_decrypt
 
     def run(self) -> dict:
-        """Check GitHub for a newer release and return the ``as_dict`` bridge."""
-        raw_token = str(self._settings.get("update.token") or "")
-        token = self._token_decrypt(raw_token) if (raw_token and self._token_decrypt) else raw_token
+        """Check GitHub for a newer release and return the ``as_dict`` bridge.
+
+        Raises ``RuntimeError`` when the check itself failed.
+        """
         self._logger.log(LogCategory.UPDATE, LogLevel.INFO, "Checking for updates...")
-        result = self._port.check(token)
+        result = _checked(self._port)
         if result.get("has_update"):
             latest = str(result.get("latest_version") or "")
             # latest_version may or may not carry a leading "v"; print exactly one.
@@ -87,7 +93,6 @@ class ApplyUpdateUseCase:
     def run(
         self,
         download_url: str,
-        token: str = "",
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> bool:
         """Download and apply, but ONLY when the asset matches the release-notes sha256.
@@ -95,7 +100,7 @@ class ApplyUpdateUseCase:
         Raises on refusal (missing/invalid checksum); returns the result of the
         adapter's self-replacement once applied.
         """
-        check = self._port.check(token)
+        check = _checked(self._port)
         expected = _extract_sha256(str(check.get("release_notes") or ""))
         if expected is None:
             message = (
@@ -108,7 +113,7 @@ class ApplyUpdateUseCase:
             LogLevel.INFO,
             "Downloading update (sha256 verified before apply)",
         )
-        downloaded = self._port.download(download_url, token, progress_callback)
+        downloaded = self._port.download(download_url, progress_callback)
         actual = _sha256_file(downloaded)
         if actual != expected:
             message = (

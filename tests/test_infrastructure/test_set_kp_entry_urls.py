@@ -56,13 +56,3 @@ def test_multiple_android_apps_get_numbered_properties(tmp_path: Path) -> None:
     assert entry.get_custom_property(ANDROID_APP_PROPERTY) == "com.a"
     assert entry.get_custom_property(f"{ANDROID_APP_PROPERTY}_1") == "com.b"
     kp.save()
-
-
-def test_reset_clears_previously_stored_urls(tmp_path: Path) -> None:
-    kp, entry = _new_entry(tmp_path)
-    set_kp_entry_urls(entry, ["https://old.example.com", "https://second.example.com"])
-    set_kp_entry_urls(entry, ["https://new.example.com"], reset=True)
-
-    assert entry.url == "https://new.example.com"
-    assert entry.get_custom_property(f"{EXTRA_URL_PROPERTY_PREFIX}1") is None
-    kp.save()

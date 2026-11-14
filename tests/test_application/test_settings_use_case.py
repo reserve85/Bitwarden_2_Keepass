@@ -80,5 +80,39 @@ def test_update_defaults_empty_bw_path_to_bw() -> None:
 def test_update_rejects_non_list_target_folders() -> None:
     use_case, _, _ = _use_case()
 
-    with pytest.raises(TypeError, match="target_folders"):
+    with pytest.raises(ValueError, match="target_folders"):
         use_case.update({"output.target_folders": "C:\\vault"})
+
+
+@pytest.mark.parametrize(
+    "url", ["https://", "http://", "ftp://nope", "vault.example.com", "https:// "]
+)
+def test_update_rejects_incomplete_server_url(url: str) -> None:
+    use_case, settings, _ = _use_case()
+
+    with pytest.raises(ValueError, match="server URL"):
+        use_case.update({"bitwarden.url": url})
+    assert settings.updated_keys == []
+
+
+@pytest.mark.parametrize("email", ["not an email", "a@", "@b", "a b@c.de"])
+def test_update_rejects_malformed_email(email: str) -> None:
+    use_case, settings, _ = _use_case()
+
+    with pytest.raises(ValueError, match="email"):
+        use_case.update({"bitwarden.email": email})
+    assert settings.updated_keys == []
+
+
+def test_update_accepts_valid_email_and_self_hosted_url() -> None:
+    use_case, _, _ = _use_case()
+
+    result = use_case.update(
+        {
+            "bitwarden.email": " user@example.com ",
+            "bitwarden.url": "https://vault.example.com:8443",
+        },
+    )
+
+    assert result["bitwarden.email"] == "user@example.com"
+    assert result["bitwarden.url"] == "https://vault.example.com:8443"

@@ -1,4 +1,4 @@
-"""Composition-root tests - build_services wiring, legacy-token migration,
+"""Composition-root tests - build_services wiring, live bw path,
 overwrite-prompt wiring and the excepthook (none of these spawned a subprocess).
 
 The real ``build_services`` is exercised here with the app-owned paths pointed
@@ -12,15 +12,11 @@ import sys
 from typing import TYPE_CHECKING
 
 import app.main as main_module
-from app.application.use_cases.settings import SettingsUseCase
-from app.infrastructure.config.security import TokenCrypto
 from app.main import (
     _install_excepthook,
-    _migrate_legacy_token,
     _wire_export_use_case,
     build_services,
 )
-from tests.fakes import FakeSettings, RecordingLogger
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,6 +24,7 @@ if TYPE_CHECKING:
     import pytest
 
     from app.main import Services
+    from tests.fakes import RecordingLogger
 
 #: The composition root's single source for the delayed startup update check.
 _EXPECTED_UPDATE_DELAY_MS = 2000
@@ -35,7 +32,6 @@ _EXPECTED_UPDATE_DELAY_MS = 2000
 
 def _build_services(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Services:
     """Isolated services: all app-owned paths land under a temp dir."""
-    monkeypatch.setattr(main_module, "config_dir", lambda: tmp_path / "config")
     monkeypatch.setattr(
         main_module,
         "config_file",
@@ -98,27 +94,18 @@ def test_wire_export_use_case_fills_seam_and_wires_overwrite_prompt(
     assert outcomes[0].copied is False
 
 
-def test_migrate_legacy_token_rekeys_plaintext_under_current_key() -> None:
-    logger = RecordingLogger()
-    settings = SettingsUseCase(FakeSettings({"update.token": "plain-token"}), logger)
-    crypto = TokenCrypto()  # machine-derived key
-
-    _migrate_legacy_token(settings, crypto, logger)
-
-    stored = settings._settings._data["update.token"]  # noqa: SLF001 - test fakes
-    assert TokenCrypto.is_encrypted(stored)
-    assert crypto.decrypt(stored) == "plain-token"
-    assert any("Migrated the update token" in message for message in logger.messages)
-
-
-def test_migrate_legacy_token_does_nothing_for_missing_token(
+def test_bw_path_change_in_settings_applies_without_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Regression: the bw adapter used to keep the path it was started with."""
     services = _build_services(tmp_path, monkeypatch)
-    # No update.token anywhere -> no write, no error (already covered implicitly
-    # by every build_services call; here it is an explicit no-op assertion).
-    assert services.settings_use_case.get_all().get("update.token") is None
+    assert services.bw_cli._bw_path == "bw"  # noqa: SLF001
+
+    services.settings_use_case.update({"bitwarden.bw_path": "/opt/bw/bw"})
+
+    assert services.bw_cli._bw_path == "/opt/bw/bw"  # noqa: SLF001
+    assert services.bw_path() == "/opt/bw/bw"
 
 
 def test_excepthook_logs_redacted_unhandled_exceptions(logger: RecordingLogger) -> None:

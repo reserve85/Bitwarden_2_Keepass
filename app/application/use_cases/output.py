@@ -1,11 +1,12 @@
 """Copy the finished kdbx into the (unlimited) target folders.
 
-Delete-source rules (safety-critical, documented):
-- the only export file is deleted ONLY when the user opted in
-  (``delete_after_copy``) AND at least one copy succeeded (every successful
-  copy has been sha256-verified by the OutputPort) - i.e. a target-less run
-  with ``delete_after_copy=True`` never deletes the only export, and a run
-  where every copy failed leaves the source in place.
+Delete-source rule (safety-critical, documented):
+- the source export file is deleted ONLY when the user opted in
+  (``delete_after_copy``) AND there is at least one target AND **every** target
+  received a sha256-verified copy. A skipped target (existing file the user
+  chose to keep) or a failed target keeps the source in place - so a
+  target-less run never deletes the only export, and a partly failed run never
+  leaves the user with fewer copies than they configured.
 
 # ported from bitwarden-to-keepass copy orchestration
 """
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from app.application.ports import LoggerPort, OutputPort
+
+#: The COPY phase owns the last tenth of the export progress bar.
+_COPY_FRACTION_START = 0.9
 
 
 class CopyToTargetsUseCase:
@@ -55,6 +59,7 @@ class CopyToTargetsUseCase:
                 phase=ExportPhase.COPY,
                 current=0,
                 total=total,
+                fraction=_COPY_FRACTION_START,
                 message=f"Copying to {len(destinations)} destination(s)",
             ),
         )
@@ -66,14 +71,14 @@ class CopyToTargetsUseCase:
                     phase=ExportPhase.COPY,
                     current=index,
                     total=total,
-                    fraction=index / total,
-                    message=f"Copied {outcome.destination}",
+                    fraction=_COPY_FRACTION_START + (1 - _COPY_FRACTION_START) * index / total,
+                    message=f"Processed {outcome.destination}",
                 ),
             )
 
         copied = [outcome for outcome in outcomes if outcome.copied]
         source_deleted = False
-        if delete_after_copy and copied:
+        if delete_after_copy and outcomes and len(copied) == len(outcomes):
             self._output.delete_source(source)
             source_deleted = True
 

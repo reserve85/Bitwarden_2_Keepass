@@ -10,21 +10,17 @@ from pykeepass import PyKeePass
 from app.infrastructure.kdbx.item import CustomFieldType, Item
 from app.infrastructure.kdbx.kdbx_writer import (
     BITWARDEN_ID_PROPERTY,
-    MAX_TITLE_ATTEMPTS,
+    TOTP_RAW_PROPERTY,
     TOTP_SEED_PROPERTY,
     TOTP_SETTINGS_PROPERTY,
+    UNNAMED_FIELD_NAME,
     KdbxWriter,
-    _redacted_item,
-    _sync_attachments,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 _MASTER_PASSWORD = "pw"
-
-#: Documented ceiling for the title-suffix retry loop.
-_EXPECTED_MAX_TITLE_ATTEMPTS = 5
 
 
 def _is_protected(entry: object, name: str) -> bool:
@@ -223,26 +219,182 @@ def test_tags_roundtrip_via_raw_dict(tmp_path: Path) -> None:
     assert entry.get_custom_property(TOTP_SEED_PROPERTY) is None  # no totp -> absent
 
 
-def test_duplicate_title_is_suffixed(tmp_path: Path) -> None:
+def _add_one(tmp_path: Path, item: dict, *, fail_attachment: bool = False) -> tuple:
+    """Write one item; return ``(re-opened entry, notices)``."""
+    path = tmp_path / "one.kdbx"
+    writer = KdbxWriter()
+
+    def get_attachment(_item_id: str, _attachment_id: str) -> bytes:
+        if fail_attachment:
+            message = "boom password=supersecret"
+            raise RuntimeError(message)
+        return b"attachment-data"
+
+    writer.set_attachment_source(get_attachment)
+    kp = writer.create(path, _MASTER_PASSWORD)
+    notices = writer.add_entry(kp, writer.load_folders(kp, []), item)
+    writer.save(kp, path)
+    entries = PyKeePass(str(path), password=_MASTER_PASSWORD).entries
+    assert len(entries) == 1
+    return entries[0], notices
+
+
+def test_duplicate_titles_are_kept_as_in_bitwarden(tmp_path: Path) -> None:
     first = _login_item("Vault", "id1")
     second = _login_item("Vault", "id2")
     path, count = _run_export(tmp_path, [first, second])
     assert count == len([first, second])
 
     kp = PyKeePass(str(path), password=_MASTER_PASSWORD)
-    titles = sorted(entry.title for entry in kp.entries)
-    assert titles == ["Vault", "Vault - (id2) [1]"]
+    assert [entry.title for entry in kp.entries] == ["Vault", "Vault"]
+    ids = sorted(entry.get_custom_property(BITWARDEN_ID_PROPERTY) for entry in kp.entries)
+    assert ids == ["id1", "id2"]
 
 
-def test_attachment_failure_rolls_back_entry(tmp_path: Path) -> None:
+def test_lossless_item_reports_no_notices(tmp_path: Path) -> None:
+    _entry, notices = _add_one(tmp_path, _login_item("Vault", "id1"))
+    assert notices == []
+
+
+def test_attachment_failure_keeps_entry_and_reports_it(tmp_path: Path) -> None:
     item = _login_item("Vault", "id1")
     item["attachments"] = [{"id": "a1", "fileName": "file.txt"}]
-    with pytest.raises(RuntimeError, match="boom"):
-        _run_export(tmp_path, [item], fail_attachment=True)
-    # no half-populated entry survives a failed add
-    path = tmp_path / "nested" / "out" / "test.kdbx"
-    kp = PyKeePass(str(path), password=_MASTER_PASSWORD)
-    assert kp.entries == []
+
+    entry, notices = _add_one(tmp_path, item, fail_attachment=True)
+
+    assert entry.password == "hunter2"  # the entry itself is NOT lost
+    assert entry.attachments == []
+    assert len(notices) == 1
+    assert "file.txt" in notices[0]
+    assert "supersecret" not in notices[0]  # the error text is redacted
+
+
+@pytest.mark.parametrize("name", ["Password", "Notes", "URL", "UserName", "Title", "otp"])
+def test_field_named_like_a_reserved_keepass_key_is_kept(tmp_path: Path, name: str) -> None:
+    """pykeepass refuses these names - the item must not be dropped over it."""
+    item = _login_item("Vault", "id1")
+    item["fields"] = [{"name": name, "value": "field-value", "type": CustomFieldType.TEXT}]
+
+    entry, _notices = _add_one(tmp_path, item)
+
+    assert entry.password == "hunter2"
+    assert entry.get_custom_property(f"{name} (Bitwarden field)") == "field-value"
+
+
+def test_duplicate_and_unnamed_fields_do_not_overwrite_each_other(tmp_path: Path) -> None:
+    item = _login_item("Vault", "id1")
+    item["fields"] = [
+        {"name": "pin", "value": "1", "type": CustomFieldType.HIDDEN},
+        {"name": "pin", "value": "2", "type": CustomFieldType.HIDDEN},
+        {"name": None, "value": "3", "type": CustomFieldType.TEXT},
+        {"name": "", "value": "4", "type": CustomFieldType.TEXT},
+        {"name": BITWARDEN_ID_PROPERTY, "value": "5", "type": CustomFieldType.TEXT},
+    ]
+
+    entry, _notices = _add_one(tmp_path, item)
+
+    assert entry.get_custom_property("pin") == "1"
+    assert entry.get_custom_property("pin (2)") == "2"
+    assert _is_protected(entry, "pin (2)")
+    assert entry.get_custom_property(UNNAMED_FIELD_NAME) == "3"
+    assert entry.get_custom_property(f"{UNNAMED_FIELD_NAME} (2)") == "4"
+    assert entry.get_custom_property(BITWARDEN_ID_PROPERTY) == "id1"  # not overwritten
+    assert entry.get_custom_property(f"{BITWARDEN_ID_PROPERTY} (2)") == "5"
+
+
+def test_control_characters_are_stripped_and_reported(tmp_path: Path) -> None:
+    item = _login_item("Vault", "id1")
+    item["notes"] = "line1\x00\x0bline2\nline3"
+
+    entry, notices = _add_one(tmp_path, item)
+
+    assert entry.notes == "line1line2\nline3"
+    assert any("control characters" in notice for notice in notices)
+
+
+def test_ssh_key_item_is_exported(tmp_path: Path) -> None:
+    item = {
+        "id": "ssh-1",
+        "type": 5,
+        "name": "Deploy key",
+        "notes": "server",
+        "sshKey": {
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----",
+            "publicKey": "ssh-ed25519 AAAA",
+            "keyFingerprint": "SHA256:abc",
+        },
+    }
+
+    entry, notices = _add_one(tmp_path, item)
+
+    assert notices == []
+    assert entry.get_custom_property("SSH Private Key").startswith("-----BEGIN")
+    assert _is_protected(entry, "SSH Private Key")
+    assert entry.get_custom_property("SSH Public Key") == "ssh-ed25519 AAAA"
+    assert entry.get_custom_property("SSH Fingerprint") == "SHA256:abc"
+
+
+def test_unknown_item_type_is_exported_and_reported(tmp_path: Path) -> None:
+    item = {"id": "x1", "type": 99, "name": "Future", "notes": "keep me"}
+
+    entry, notices = _add_one(tmp_path, item)
+
+    assert entry.title == "Future"
+    assert entry.notes == "keep me"
+    assert any("unknown item type" in notice for notice in notices)
+
+
+def test_steam_totp_is_exported(tmp_path: Path) -> None:
+    item = _login_item("Steam", "id1")
+    item["login"]["totp"] = "steam://ABCDEFGH"
+
+    entry, notices = _add_one(tmp_path, item)
+
+    assert notices == []
+    assert entry.get_custom_property(TOTP_SEED_PROPERTY) == "ABCDEFGH"
+    assert entry.get_custom_property(TOTP_SETTINGS_PROPERTY) == "30;S"
+
+
+def test_unparseable_totp_is_kept_raw_and_reported(tmp_path: Path) -> None:
+    item = _login_item("Odd", "id1")
+    item["login"]["totp"] = "otpauth://totp/NoSecret?digits=6"
+
+    entry, notices = _add_one(tmp_path, item)
+
+    assert entry.get_custom_property(TOTP_RAW_PROPERTY) == "otpauth://totp/NoSecret?digits=6"
+    assert _is_protected(entry, TOTP_RAW_PROPERTY)
+    assert entry.get_custom_property(TOTP_SEED_PROPERTY) is None
+    assert any("TOTP" in notice for notice in notices)
+
+
+def test_otpauth_uri_is_also_stored_for_keepassxc(tmp_path: Path) -> None:
+    item = _login_item("Vault", "id1")
+    uri = "otpauth://totp/Example:user?secret=ABCDEFGHIJ&algorithm=SHA256&digits=8"
+    item["login"]["totp"] = uri
+
+    entry, _notices = _add_one(tmp_path, item)
+
+    assert entry.otp == uri
+    assert entry.get_custom_property(TOTP_SETTINGS_PROPERTY) == "30;8"
+
+
+def test_passkey_is_reported(tmp_path: Path) -> None:
+    item = _login_item("Vault", "id1")
+    item["login"]["fido2Credentials"] = [{"credentialId": "abc"}]
+
+    _entry, notices = _add_one(tmp_path, item)
+
+    assert any("passkey" in notice for notice in notices)
+
+
+def test_blank_uris_are_ignored(tmp_path: Path) -> None:
+    item = _login_item("Vault", "id1")
+    item["login"]["uris"] = [{"uri": None}, {"uri": ""}, {"uri": "https://a.example"}]
+
+    entry, _notices = _add_one(tmp_path, item)
+
+    assert entry.url == "https://a.example"
+    assert entry.get_custom_property("KP2A_URL_1") is None
 
 
 def test_missing_attachment_source_raises(tmp_path: Path) -> None:
@@ -276,15 +428,17 @@ def test_verify_wrong_password_raises(tmp_path: Path) -> None:
         writer.verify(path, "wrong")
 
 
-def test_item_without_type_raises_and_rolls_back(tmp_path: Path) -> None:
-    writer = KdbxWriter()
+def test_failed_item_is_rolled_back(tmp_path: Path) -> None:
+    """An item that cannot be written leaves no half-populated entry behind."""
+    writer = KdbxWriter()  # no attachment source -> the attachment step raises
     path = tmp_path / "test.kdbx"
     kp = writer.create(path, _MASTER_PASSWORD)
     groups = writer.load_folders(kp, [])
+    item = _login_item("Vault", "id1")
+    item["attachments"] = [{"id": "a1", "fileName": "file.txt"}]
     with pytest.raises(RuntimeError):
-        writer.add_entry(kp, groups, Item({"id": "bad", "name": "broken"}))
-    writer.save(kp, path)
-    assert writer.verify(path, _MASTER_PASSWORD) == 0
+        writer.add_entry(kp, groups, item)
+    assert kp.entries == []
 
 
 def test_create_missing_parent_directory(tmp_path: Path) -> None:
@@ -294,49 +448,3 @@ def test_create_missing_parent_directory(tmp_path: Path) -> None:
     writer.save(kp, path)
     assert path.is_file()
     assert writer.verify(path, _MASTER_PASSWORD) == 0
-
-
-def test_sync_attachments_adds_and_removes_stale(tmp_path: Path) -> None:
-    writer = KdbxWriter()
-    path = tmp_path / "test.kdbx"
-    kp = writer.create(path, _MASTER_PASSWORD)
-    entry = kp.add_entry(kp.root_group, "Title", "user", "pass")
-    old_id = kp.add_binary(b"old")
-    entry.add_attachment(old_id, "old.txt")
-
-    item = Item({"id": "x", "attachments": [{"id": "a2", "fileName": "new.txt"}]})
-    _sync_attachments(kp, lambda _item_id, _att_id: b"new-data", entry, item)
-
-    assert [attachment.filename for attachment in entry.attachments] == ["new.txt"]
-
-
-def test_duplicate_title_attempts_capped() -> None:
-    """MAX_TITLE_ATTEMPTS guards runaway title-suffix loops."""
-    assert MAX_TITLE_ATTEMPTS == _EXPECTED_MAX_TITLE_ATTEMPTS
-
-
-def test_redacted_item_redacts_secrets() -> None:
-    item = {
-        "id": "id1",
-        "type": 1,
-        "name": "Vault",
-        "login": {"username": "u", "password": "secret-pw", "totp": "otpauth://..."},
-        "notes": "recovery: abc123",
-        "fields": [
-            {"name": "note", "value": "value", "type": CustomFieldType.TEXT},
-            {"name": "secret", "value": "shh", "type": CustomFieldType.HIDDEN},
-        ],
-        "card": {"number": "4111", "code": "123"},
-        "identity": {"ssn": "123-45-6789"},
-    }
-    redacted = _redacted_item(item)
-    assert redacted["login"]["password"] == "***"
-    assert "totp" not in redacted["login"]
-    assert redacted["notes"] == "***"
-    assert redacted["fields"][0]["value"] == "value"
-    assert redacted["fields"][1]["value"] == "***"
-    assert redacted["card"]["number"] == "***"
-    assert redacted["card"]["code"] == "***"
-    assert redacted["identity"]["ssn"] == "***"
-    # the source item is untouched (deep copy)
-    assert item["login"]["password"] == "secret-pw"

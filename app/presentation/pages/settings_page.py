@@ -73,7 +73,8 @@ class SettingsPage(QWidget):
         form.addRow("Target folders:", target_row)
 
         self._delete_after_copy = QCheckBox(
-            "Delete the source export file after all copies succeeded",
+            "Delete the export file in the output folder once every target "
+            "folder received a verified copy",
             self,
         )
         form.addRow(self._delete_after_copy)
@@ -116,7 +117,7 @@ class SettingsPage(QWidget):
         self._status.setStyleSheet("color: #b00020;" if error else "")
 
     def _collect(self) -> dict:
-        """Current form values as dotted keys (update.token is never collected)."""
+        """Current form values as dotted keys."""
         return {
             "bitwarden.url": self._url.text().strip(),
             "bitwarden.email": self._email.text().strip(),

@@ -16,6 +16,10 @@ thread) then BLOCK on a thread-safe ``queue.Queue``. The GUI slot shows
 ``TwoFactorDialog`` and calls ``submit_totp(code)`` (a queue put). No nested
 event loop, no ``QThread.wait``, no modal-on-worker deadlock.
 
+Cancellation: ``requestInterruption()`` makes the ``ExportWorker`` abort at the
+next progress sample (``ExportCancelled``); the export use case then removes
+its partial file. A running ``bw`` call is never killed mid-flight.
+
 # reference pattern
 """
 
@@ -27,7 +31,13 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from app.domain.entities import ExportPhase, ExportProgress, ExportRequest, TwoFactorRequired
+from app.domain.entities import (
+    ExportCancelled,
+    ExportPhase,
+    ExportProgress,
+    ExportRequest,
+    TwoFactorRequired,
+)
 from app.infrastructure.secure import redact_secrets, wipe
 
 if TYPE_CHECKING:
@@ -40,7 +50,8 @@ if TYPE_CHECKING:
         CheckForUpdatesUseCase,
     )
 
-_TWO_FACTOR_TIMEOUT_SECONDS = 60
+#: How long the worker waits for the user to type the 2FA code.
+_TWO_FACTOR_TIMEOUT_SECONDS = 300
 
 
 class LoginWorker(QThread):
@@ -151,6 +162,12 @@ class ExportWorker(QThread):
         self._request = request
         self._master_password = master_password
 
+    def _report(self, sample: ExportProgress) -> None:
+        """Progress callback; doubles as the cancellation point."""
+        if self.isInterruptionRequested():
+            raise ExportCancelled("The export was cancelled.")
+        self.progress.emit(sample)
+
     def run(self) -> None:
         request = self._request
         if request is None:
@@ -159,7 +176,7 @@ class ExportWorker(QThread):
         try:
             password = self._master_password.decode("utf-8")
             export_request = replace(request, master_password=password)
-            result = self._use_case.run(export_request, self.progress.emit)
+            result = self._use_case.run(export_request, self._report)
             self.finished_result.emit(result)
         except Exception as exc:
             self.failed.emit(redact_secrets(str(exc)))
@@ -188,7 +205,7 @@ class UpdateCheckWorker(QThread):
 class UpdateDownloadWorker(QThread):
     """Downloads (sha256-gated) and applies the update; reports progress."""
 
-    progress = pyqtSignal(int, int)  # current, total
+    progress = pyqtSignal(int)  # percent 0..100
     finished_result = pyqtSignal(bool)
     failed = pyqtSignal(str)
 
@@ -196,17 +213,19 @@ class UpdateDownloadWorker(QThread):
         self,
         use_case: ApplyUpdateUseCase,
         url: str,
-        token: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._use_case = use_case
         self._url = url
-        self._token = token
+
+    def _report(self, downloaded: int, total: int) -> None:
+        if total > 0:
+            self.progress.emit(max(0, min(100, downloaded * 100 // total)))
 
     def run(self) -> None:
         try:
-            applied = self._use_case.run(self._url, self._token, self.progress.emit)
+            applied = self._use_case.run(self._url, self._report)
             self.finished_result.emit(applied)
         except Exception as exc:
             self.failed.emit(redact_secrets(str(exc)))

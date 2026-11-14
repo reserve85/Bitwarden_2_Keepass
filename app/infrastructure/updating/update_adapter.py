@@ -44,14 +44,16 @@ class GithubUpdateAdapter:
             app_name=_APP_NAME,
         )
 
-    def check(self, token: str = "") -> dict:
-        """Check the latest GitHub release; returns ``UpdateCheckResult.as_dict()``."""
-        return self._update_service().check_for_update(token=token).as_dict()
+    def check(self) -> dict:
+        """Check the latest GitHub release; returns ``UpdateCheckResult.as_dict()``.
+
+        The repository is public, so the check is always anonymous.
+        """
+        return self._update_service().check_for_update().as_dict()
 
     def download(
         self,
         url: str,
-        token: str = "",
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> str:
         """Download the release asset to a validated temp path (``str``)."""
@@ -59,7 +61,6 @@ class GithubUpdateAdapter:
 
         result = self._update_service().download_update(
             url,
-            token=token,
             progress_callback=progress_callback,
         )
         if result.error:
@@ -68,6 +69,10 @@ class GithubUpdateAdapter:
 
     def apply(self, downloaded: Path) -> bool:
         """Validate, stage and launch the safe self-replacement.
+
+        The detached helper swaps the executable in once this process has
+        exited; the caller quits the app normally afterwards (the helper does
+        not relaunch it).
 
         Only meaningful inside a frozen (PyInstaller) build: in a source
         checkout there is no single executable to swap, so the apply is
@@ -80,10 +85,6 @@ class GithubUpdateAdapter:
                 "Self-update is only supported in the packaged application.",
             )
         return self._update_service().apply_update(str(downloaded))
-
-    def restart(self) -> None:
-        """Exit the app; the detached helper swaps in the new version."""
-        self._update_service().restart_app()
 
     def clean_old_files(self) -> None:
         """Restore a broken state, then remove leftover stages (best-effort)."""

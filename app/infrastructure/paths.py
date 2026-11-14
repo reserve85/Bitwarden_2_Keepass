@@ -34,11 +34,11 @@ def output_dir() -> Path:
 
 
 def bw_data_dir() -> Path:
-    """App-owned bw data folder - created per export and wiped afterwards.
+    """App-owned bw data folder - wiped at startup and shutdown.
 
-    Every bw invocation runs with ``BW_DATA_FOLDER``/``BW_CONFIG_FILE`` pointed
-    here (see :class:`app.infrastructure.bw.bw_cli.BwCli`), so the bw CLI never
-    writes vault data/session state into the user's own bw config.
+    Every bw invocation runs with ``BITWARDENCLI_APPDATA_DIR`` pointed here
+    (see :class:`app.infrastructure.bw.bw_cli.BwCli`), so the bw CLI never
+    reads or writes the user's own bw profile.
     """
     return app_base_dir() / "bw_data"
 

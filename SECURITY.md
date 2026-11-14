@@ -15,7 +15,7 @@ everywhere means: minimise copies, clear Qt widgets, wipe mutable buffers in
   purpose; the caller wipes the buffer in a `finally` path (`wipe()`).
 - Qt widget copies of typed secrets are cleared on dialog accept/cancel
   (`drop_qt_str`).
-- 2FA codes are wiped immediately after use and are never logged.
+- 2FA codes are cleared from the dialog after use and are never logged.
 - Attachment bytes flow `bw` -> RAM -> `kp.add_binary` -> kdbx; they are never
   written to temp files and never logged.
 
@@ -23,11 +23,16 @@ everywhere means: minimise copies, clear Qt widgets, wipe mutable buffers in
 
 - The config schema (`config/app_config.yaml`) has **no password keys**.
 - The `bw` CLI would persist vault data + session state under the user's
-  default config directory. Every `bw` invocation therefore runs with
-  `BW_DATA_FOLDER` and `BW_CONFIG_FILE` pointed at an app-owned folder that is
-  created per export and wiped (best-effort `rmtree`) afterwards. This makes
-  the "nothing persisted to disk" claim true end-to-end - on the validated
-  precondition that the used `bw` version honours these environment variables.
+  own profile (`%APPDATA%\Bitwarden CLI`, `~/.config/Bitwarden CLI`). Every
+  `bw` invocation therefore runs with `BITWARDENCLI_APPDATA_DIR` pointed at an
+  app-owned folder (`bw_data/`) that is wiped (best-effort `rmtree`) at startup
+  and shutdown; after every export the session is locked and logged out, which
+  makes `bw` drop the synced vault. The user's own `bw` profile (server
+  config, login state) is never read or changed. While an export runs, the
+  folder holds the `bw` state file with the (encrypted) vault.
+- The export is written to `<name>.kdbx.partial` and renamed only after it
+  was saved, re-opened and its entry count verified. A failed or cancelled
+  run removes the partial file and leaves earlier exports untouched.
 - Session keys are passed to `bw` via the `BW_SESSION` environment variable -
   never on the command line. The master password is given to `bw login` only
   through `--passwordenv <NAME>`: an environment variable of the `bw` process.
@@ -43,24 +48,30 @@ everywhere means: minimise copies, clear Qt widgets, wipe mutable buffers in
 
 - `AppLogger` is the only logging sink: a bounded in-memory ring buffer that
   **never writes to disk** (enforced by `test_app_logger.py::has_disk_handlers`).
-- Items are logged by name + counts only; an item-level failure logs the item
-  name + id and the (redacted) exception text - never notes, passwords or
-  fields. `_redacted_item()` is the deep-copy helper that keeps item payloads
-  log-safe (passwords, notes, hidden/linked/unknown fields, card number/code
-  and identity ssn/passport/license redacted) - exercised by tests today and
-  ready for any future item payload that needs logging.
+- Items are logged by name + counts only; an item-level failure or notice
+  logs the item name + id and a (redacted) reason - never notes, passwords or
+  field values. Item payloads are never logged.
 - Every error/log payload passes through `redact_secrets()` (masks values of
   sensitive field names and long base64 tokens - session keys, raw `bw login`
   stdout) before it is raised, logged or shown. `ErrorDialog` applies the same
   redaction **internally** - dialog messages are treated as untrusted input.
 
-## 4. bw binary trust (PATH-hijack guard)
+## 4. bw binary resolution
 
-`BwCli.resolve_and_validate()` runs `bw --version` and requires the expected
-"Bitwarden CLI ..." output shape. Resolutions into user-writable locations
-(Downloads / temp / cwd) trigger a warning dialog linking to Settings. `bw` is
-never invoked before this check. `bw` is **not** bundled; install it yourself
-(e.g. `winget install Bitwarden.CLI`) and point the settings at it.
+The configured `bw` is resolved to an absolute path (explicit path as-is; a
+bare name via `PATH`, then the winget package folder) and **only that path is
+executed** - a bare `bw` is never handed to the OS loader, and a `bw` that
+merely lies in the working directory is ignored. A resolution into Downloads /
+temp / the working directory shows a confirmation dialog before the master
+password is requested.
+
+`bw --version` is checked as a sanity test against a wrong path. It is **not**
+a trust decision: any program can print a version string. `bw` receives your
+master password and vault, so its integrity is your responsibility - it is
+**not** bundled; install it from a trusted source (e.g.
+`winget install Bitwarden.CLI`). The per-user winget folder is as
+user-writable as this app's own folder; software running as you can replace
+either.
 
 ## 5. Update trust model (documented acceptance)
 
@@ -71,16 +82,21 @@ never invoked before this check. `bw` is **not** bundled; install it yourself
   (tags can be force-moved).
 - When a release's notes publish a sha256 for the asset, `ApplyUpdateUseCase`
   verifies the downloaded file against it **before** the exe is replaced. If no
-  sha256 is published, the update is **refused**.
+  sha256 is published, the update is **refused**. This protects against a
+  corrupted or truncated download. It does **not** protect against a
+  compromised GitHub account or release: the hash and the EXE come from the
+  same release. Only a signature made with a key that is not stored on GitHub
+  would - this is not implemented.
+- The update check is anonymous (public repository); no GitHub token is
+  stored or sent.
+- Runtime dependencies and PyInstaller are pinned to exact versions, GitHub
+  Actions to commit SHAs. Dependency hashes are not pinned.
 
 ## 6. Repo hygiene
 
 - `.gitignore` excludes `config/`, `output/`, `bw_data/` and the lock file
   (runtime user data).
 - `.pre-commit-config.yaml` runs `gitleaks`; CI runs `gitleaks` + `pip-audit`.
-- `TokenCrypto` (machine-derived PBKDF2-Fernet key, no key file) is used for
-  the optional GitHub token. It is machine-derived **obfuscation**, not
-  protection against a same-user attacker.
 
 ## 7. Known limitations
 
@@ -97,4 +113,7 @@ never invoked before this check. `bw` is **not** bundled; install it yourself
   (30-60 s), never logged and never persisted; a local same-user process with
   process-list access could observe it during the login attempt.
 - A crash mid-export can leave the app-owned `bw_data/` folder (bw CLI state:
-  server config) on disk; it is wiped at the next startup and git-ignored.
+  server config, login state, encrypted vault) and a `.partial` export file on
+  disk; `bw_data/` is wiped at the next startup and git-ignored.
+- Bitwarden two-step login is supported for authenticator-app codes only.
+- Passkeys and the password history are not exported (see README).

@@ -24,6 +24,10 @@ class TwoFactorRequired(RuntimeError):  # noqa: N818 - ported name, plan-mandate
     """
 
 
+class ExportCancelled(RuntimeError):  # noqa: N818 - reads as an event, not an error
+    """Raised inside the export when the user asked to abort it (app close)."""
+
+
 class LogLevel(str, Enum):  # noqa: UP042 - explicit str/Enum per plan
     """Severity levels - reference values."""
 
@@ -90,11 +94,20 @@ class CopyOutcome:
 
 @dataclass(frozen=True, slots=True)
 class ExportResult:
-    """Outcome of a complete export run."""
+    """Outcome of a complete export run.
+
+    ``skipped_items`` lists vault items that could NOT be written at all,
+    ``notices`` everything that was exported but not 1:1 (both secret-free:
+    item name + reason). An export is only complete when both are empty.
+    """
 
     path: str
     copies: list[CopyOutcome]
     source_deleted: bool = False
+    item_total: int = 0
+    entry_count: int = 0
+    skipped_items: tuple[str, ...] = ()
+    notices: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

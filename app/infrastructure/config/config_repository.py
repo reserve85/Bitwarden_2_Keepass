@@ -25,7 +25,7 @@ import yaml
 #: Runtime defaults applied when a key is missing or on first run (nested).
 DEFAULTS: dict[str, Any] = {
     "bitwarden": {
-        "url": "https://bitwarden.eu",
+        "url": "https://vault.bitwarden.eu",
         "email": "",
         "bw_path": "bw",
     },
@@ -35,7 +35,6 @@ DEFAULTS: dict[str, Any] = {
         "delete_after_copy": False,
     },
     "update": {
-        "token": None,  # optional, encrypted by TokenCrypto (never plaintext)
         "check_at_startup": True,
     },
 }
@@ -48,7 +47,6 @@ DEFAULT_KEYS = [
     "output.output_folder",
     "output.target_folders",
     "output.delete_after_copy",
-    "update.token",
     "update.check_at_startup",
 ]
 

@@ -141,18 +141,15 @@ class FakeUpdatePort:
         self.download_path = download_path
         self.download_error = download_error
         self.calls: list[str] = []
-        self.checked_tokens: list[str] = []
         self.applied_paths: list[str] = []
 
-    def check(self, token: str = "") -> dict:
+    def check(self) -> dict:
         self.calls.append("check")
-        self.checked_tokens.append(token)
         return dict(self.check_result)
 
     def download(
         self,
         url: str,
-        _token: str = "",
         _progress_callback: object | None = None,
     ) -> str:
         self.calls.append(f"download {url}")
@@ -164,9 +161,6 @@ class FakeUpdatePort:
         self.calls.append("apply")
         self.applied_paths.append(str(downloaded))
         return True
-
-    def restart(self) -> None:
-        self.calls.append("restart")
 
     def clean_old_files(self) -> None:
         self.calls.append("clean_old_files")

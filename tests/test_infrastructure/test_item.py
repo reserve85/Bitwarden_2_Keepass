@@ -9,9 +9,9 @@ def _login_item(**login: object) -> Item:
     return Item({"id": "id1", "login": login})
 
 
-def test_get_uris_returns_normalized_strings_without_mutation() -> None:
+def test_get_uris_drops_blank_entries_without_mutation() -> None:
     item = _login_item(uris=[{"uri": "https://example.com"}, {"uri": None}])
-    assert item.get_uris() == ["https://example.com", ""]
+    assert item.get_uris() == ["https://example.com"]
     # The source item must not be modified by the getter.
     assert item.item["login"]["uris"][1]["uri"] is None
 
@@ -22,7 +22,7 @@ def test_get_uris_without_login_returns_empty() -> None:
 
 def test_get_uris_tolerates_missing_uri_key() -> None:
     item = _login_item(uris=[{"match": "no uri key"}])
-    assert item.get_uris() == [""]
+    assert item.get_uris() == []
 
 
 def test_get_custom_fields_does_not_mutate_source() -> None:
@@ -157,3 +157,23 @@ def test_id_name_folder_id() -> None:
     assert item.get_name() == "Vault"
     assert item.get_folder_id() == "f1"
     assert Item({"id": ""}).get_folder_id() is None
+
+
+def test_get_totp_steam_uses_the_steam_settings() -> None:
+    item = _login_item(totp="steam://ABCDEFGH")
+    assert item.get_totp() == ("ABCDEFGH", "30;S")
+
+
+def test_malformed_login_is_tolerated() -> None:
+    item = Item({"id": "1", "type": 1, "login": None})
+    assert item.get_username() == ""
+    assert item.get_password() == ""
+    assert item.get_uris() == []
+    assert item.get_totp() == (None, None)
+    assert item.has_passkeys() is False
+
+
+def test_get_ssh_key_normalizes_and_guards_defaults() -> None:
+    item = Item({"id": "1", "type": 5, "sshKey": {"privateKey": "k", "publicKey": None}})
+    assert item.get_ssh_key() == {"privateKey": "k", "publicKey": "", "keyFingerprint": ""}
+    assert Item({"id": "2"}).get_ssh_key() == {}

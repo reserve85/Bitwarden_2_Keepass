@@ -1,1 +1,1 @@
-"""YAML configuration repository + machine-derived-key token encryption."""
+"""YAML configuration repository."""

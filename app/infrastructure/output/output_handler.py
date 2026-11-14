@@ -4,6 +4,9 @@ Safety-critical rules:
 - every copy is **content-verified** by comparing sha256(source) with
   sha256(dest) - a file-size check is NOT sufficient (a truncated/corrupt copy
   can have equal size). Outcomes carry the verified hash (or ``""`` + error).
+- the copy is written to ``<name>.partial`` and only moved onto the final
+  name after the hash matched, so an existing good backup at the destination
+  is never replaced by a truncated or corrupt file.
 - the overwrite-callback decides what happens when the destination file
   already exists: returning True overwrites it, False skips it
   (``CopyOutcome.skipped``) and True-with-"Skip" is never asked twice.
@@ -14,6 +17,7 @@ Safety-critical rules:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import shutil
 from pathlib import Path
@@ -67,14 +71,17 @@ class OutputHandler:
                     skipped=True,
                 )
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            destination_hash = self.file_sha256(destination)
-            if destination_hash != source_hash:
-                error = (
-                    f"Checksum mismatch after copying to {destination}: "
-                    f"expected {source_hash}, got {destination_hash}"
-                )
-                return CopyOutcome(destination=str(destination), copied=False, error=error)
+            partial = destination.with_name(destination.name + ".partial")
+            try:
+                shutil.copy2(source, partial)
+                destination_hash = self.file_sha256(partial)
+                if destination_hash != source_hash:
+                    error = f"Checksum mismatch after copying to {destination}."
+                    return CopyOutcome(destination=str(destination), copied=False, error=error)
+                partial.replace(destination)
+            finally:
+                with contextlib.suppress(OSError):
+                    partial.unlink(missing_ok=True)
             return CopyOutcome(
                 destination=str(destination),
                 copied=True,

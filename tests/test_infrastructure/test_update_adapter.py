@@ -103,7 +103,7 @@ def test_check_returns_as_dict_and_uses_configured_owner_repo(
     ).as_dict()
 
     adapter = GithubUpdateAdapter("0.5.0")
-    result = adapter.check(token="tok")
+    result = adapter.check()
 
     assert result["has_update"] is True
     assert result["latest_version"] == "v1.1.0"
@@ -119,7 +119,7 @@ def test_download_returns_path_on_success(monkeypatch: pytest.MonkeyPatch) -> No
     FakeUpdateService.download_result = DownloadResult(path="C:\\temp\\app_new.zip", error="")
 
     adapter = GithubUpdateAdapter("0.5.0")
-    path = adapter.download("https://example.com/exe.zip", token="tok")
+    path = adapter.download("https://example.com/exe.zip")
 
     assert path == "C:\\temp\\app_new.zip"
 
@@ -134,7 +134,7 @@ def test_download_raises_update_error_on_failure(monkeypatch: pytest.MonkeyPatch
         adapter.download("https://example.com/exe.zip")
 
 
-def test_apply_restart_and_cleanup_delegate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_apply_and_cleanup_delegate(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_service(monkeypatch)
     # The sys.frozen guard only lets a packaged (PyInstaller) build apply.
     monkeypatch.setattr(sys, "frozen", True, raising=False)
@@ -142,9 +142,6 @@ def test_apply_restart_and_cleanup_delegate(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert adapter.apply(Path("C:\\temp\\app_new.zip")) is True
     assert FakeUpdateService.apply_result is True
-
-    adapter.restart()
-    assert FakeUpdateService.restarted is True
 
     adapter.clean_old_files()
     assert FakeUpdateService.cleaned is True

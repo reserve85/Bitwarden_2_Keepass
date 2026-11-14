@@ -19,12 +19,11 @@ from app.infrastructure.config.config_repository import DEFAULTS, YamlAppSetting
 def test_defaults_on_first_run(tmp_path: Path) -> None:
     config = tmp_path / "config" / "app_config.yaml"
     settings = YamlAppSettings(config, base=tmp_path)
-    assert settings.get("bitwarden.url") == "https://bitwarden.eu"
+    assert settings.get("bitwarden.url") == "https://vault.bitwarden.eu"
     assert settings.get("bitwarden.email") == ""
     assert settings.get("bitwarden.bw_path") == "bw"
     assert settings.get("output.target_folders") == []
     assert settings.get("output.delete_after_copy") is False
-    assert settings.get("update.token") is None
     assert settings.get("update.check_at_startup") is True
 
 
@@ -110,7 +109,6 @@ def test_to_dict_contains_all_keys(tmp_path: Path) -> None:
         "output.output_folder",
         "output.target_folders",
         "output.delete_after_copy",
-        "update.token",
         "update.check_at_startup",
     }
     assert data["update.check_at_startup"] is True

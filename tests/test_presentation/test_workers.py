@@ -187,16 +187,16 @@ class TestUpdateWorkers:
             def run(
                 self,
                 _url: str,
-                _token: str,
                 progress_callback: Callable[[int, int], None],
             ) -> bool:
-                progress_callback(50, 100)
+                progress_callback(0, 0)  # unknown size: no sample
+                progress_callback(4096, 8192)
                 return True
 
         worker = UpdateDownloadWorker(FakeApply(), "https://example.com/x.zip")  # type: ignore[arg-type]
-        progress: list[tuple[int, int]] = []
+        progress: list[int] = []
         results: list[bool] = []
-        worker.progress.connect(lambda current, total: progress.append((current, total)))
+        worker.progress.connect(progress.append)
         worker.finished_result.connect(results.append)
 
         worker.start()
@@ -204,4 +204,4 @@ class TestUpdateWorkers:
         qapp.processEvents()
 
         assert results == [True]
-        assert progress == [(50, 100)]
+        assert progress == [50]  # percent - never raw byte counts

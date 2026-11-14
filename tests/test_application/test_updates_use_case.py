@@ -1,4 +1,4 @@
-"""Update use-case tests - token decryption + release-note sha256 gate."""
+"""Update use-case tests - check error handling + release-note sha256 gate."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from app.application.use_cases.updates import (
     CheckForUpdatesUseCase,
     _extract_sha256,
 )
-from tests.fakes import FakeSettings, FakeUpdatePort, RecordingLogger
+from tests.fakes import FakeUpdatePort, RecordingLogger
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,7 +32,7 @@ def test_extract_sha256_parses_release_notes() -> None:
     assert _extract_sha256("no checksum here") is None
 
 
-def test_check_passes_decrypted_token_to_port() -> None:
+def test_check_reports_available_update() -> None:
     port = FakeUpdatePort(
         check_result={
             "has_update": True,
@@ -42,28 +42,38 @@ def test_check_passes_decrypted_token_to_port() -> None:
             "error": "",
         },
     )
-    settings = FakeSettings(initial={"update.token": "gAAAAAencrypted"})
-
-    def decrypt(value: str) -> str:
-        return "plaintext-token" if value.startswith("gAAAAA") else value
-
     logger = RecordingLogger()
-    use_case = CheckForUpdatesUseCase(port, settings, logger, token_decrypt=decrypt)
 
-    result = use_case.run()
+    result = CheckForUpdatesUseCase(port, logger).run()
 
     assert result["has_update"] is True
-    assert port.checked_tokens == ["plaintext-token"]
     assert any("Update available: v1.1.0" in m for m in logger.messages)
 
 
-def test_check_without_token_passes_empty_token() -> None:
-    port = FakeUpdatePort()
-    use_case = CheckForUpdatesUseCase(port, FakeSettings(), RecordingLogger())
+def test_check_without_update_logs_no_update() -> None:
+    logger = RecordingLogger()
 
-    use_case.run()
+    CheckForUpdatesUseCase(FakeUpdatePort(), logger).run()
 
-    assert port.checked_tokens == [""]
+    assert any("No update available" in m for m in logger.messages)
+
+
+def test_check_failure_is_not_reported_as_no_update() -> None:
+    """The updater reports network errors in ``error`` - that is not "up to date"."""
+    port = FakeUpdatePort(check_result={"has_update": False, "error": "Network error: offline"})
+    logger = RecordingLogger()
+
+    with pytest.raises(RuntimeError, match="offline"):
+        CheckForUpdatesUseCase(port, logger).run()
+    assert not any("No update available" in m for m in logger.messages)
+
+
+def test_apply_refuses_when_the_release_check_failed() -> None:
+    port = FakeUpdatePort(check_result={"error": "Network error: offline"})
+
+    with pytest.raises(RuntimeError, match="offline"):
+        ApplyUpdateUseCase(port, RecordingLogger()).run("https://example.com/exe.zip")
+    assert port.calls == ["check"]
 
 
 def test_apply_verifies_sha256_before_applying(tmp_path: Path) -> None:

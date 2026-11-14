@@ -16,6 +16,7 @@ class ItemType(IntEnum):
     SECURE_NOTE = 2
     CARD = 3
     IDENTITY = 4
+    SSH_KEY = 5
 
 
 class CustomFieldType(IntEnum):
@@ -71,34 +72,40 @@ class Item:
     def get_folder_id(self) -> str | None:
         return self.item.get("folderId")
 
+    def _login(self) -> dict:
+        """The ``login`` sub-dict, or ``{}`` when absent/malformed."""
+        login = self.item.get("login")
+        return login if isinstance(login, dict) else {}
+
     def get_username(self) -> str:
-        if "login" not in self.item:
-            return ""
-
-        if "username" not in self.item["login"]:
-            return ""
-
-        return self.item["login"]["username"] or ""
+        return self._login().get("username") or ""
 
     def get_password(self) -> str:
-        if "login" not in self.item:
-            return ""
-
-        if "password" not in self.item["login"]:
-            return ""
-
-        return self.item["login"]["password"] or ""
+        return self._login().get("password") or ""
 
     def get_notes(self) -> str:
-        return self.item.get("notes", "")
+        return self.item.get("notes") or ""
 
     def get_uris(self) -> list[str]:
-        if "login" not in self.item or "uris" not in self.item["login"]:
+        """Non-empty URIs in vault order (blank/malformed records are dropped)."""
+        uris = self._login().get("uris")
+        if not isinstance(uris, list):
             return []
-        return [
-            (uri.get("uri") or "") if isinstance(uri, dict) else ""
-            for uri in self.item["login"]["uris"]
-        ]
+        return [uri["uri"] for uri in uris if isinstance(uri, dict) and uri.get("uri")]
+
+    def has_passkeys(self) -> bool:
+        """True when the login carries FIDO2 credentials (not exportable)."""
+        return bool(self._login().get("fido2Credentials"))
+
+    def get_ssh_key(self) -> dict:
+        """Normalized SSH key dict (missing -> empty strings)."""
+        key = self.item.get("sshKey")
+        if not isinstance(key, dict):
+            return {}
+        return {
+            field: str(key.get(field) or "")
+            for field in ("privateKey", "publicKey", "keyFingerprint")
+        }
 
     def get_custom_fields(self) -> list[dict]:
         if not isinstance(self.item.get("fields"), list):
@@ -122,11 +129,11 @@ class Item:
             )
         return fields
 
-    def get_attachments(self) -> list:
-        if "attachments" not in self.item:
+    def get_attachments(self) -> list[dict]:
+        attachments = self.item.get("attachments")
+        if not isinstance(attachments, list):
             return []
-
-        return self.item["attachments"]
+        return [attachment for attachment in attachments if isinstance(attachment, dict)]
 
     def get_tags(self) -> list[str]:
         tags = self.item.get("tags")
@@ -148,23 +155,33 @@ class Item:
             return {}
         return {field: str(identity.get(field) or "") for field in IDENTITY_FIELDS}
 
+    def get_totp_raw(self) -> str:
+        """The TOTP value exactly as stored in Bitwarden (``""`` when absent)."""
+        raw = self._login().get("totp")
+        return raw if isinstance(raw, str) else ""
+
     def get_totp(self) -> tuple[str | None, str | None]:
-        if "login" not in self.item:
+        """``(seed, "period;digits")`` in the KeeTrayTOTP layout, or ``(None, None)``.
+
+        ``(None, None)`` with a non-empty :meth:`get_totp_raw` means the value
+        could not be parsed - the writer then keeps the raw value so nothing
+        is lost.
+        """
+        raw = self.get_totp_raw()
+        if not raw:
             return None, None
 
-        if "totp" not in self.item["login"]:
-            return None, None
+        if raw.lower().startswith("steam://"):
+            # Steam Guard: 5-character codes; KeeTrayTOTP/KeePassXC spell it "S".
+            secret = raw[len("steam://") :]
+            return (secret, "30;S") if secret else (None, None)
 
-        if not self.item["login"]["totp"]:
-            return None, None
-
-        raw = self.item["login"]["totp"]
         parsed = urlsplit(raw)
         query = dict(parse_qsl(parsed.query))
         if parsed.scheme:
             # Full otpauth:// URI. A missing secret= query param means we cannot
-            # produce a seed - storing the whole URI would silently break code
-            # validation in KeePass, so report "no TOTP" instead.
+            # produce a seed - storing the whole URI as the seed would silently
+            # break code generation in KeePass, so report "not parseable".
             secret = query.get("secret")
             if not secret:
                 return None, None
