@@ -43,5 +43,17 @@ def bw_data_dir() -> Path:
     return app_base_dir() / "bw_data"
 
 
+def resource_path(name: str) -> Path:
+    """Path of a read-only file shipped in ``app/resources``.
+
+    In a frozen one-file build the resources are unpacked into PyInstaller's
+    temporary bundle directory (``sys._MEIPASS``), not next to the EXE - the
+    release build bundles them there via ``--add-data``.
+    """
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    root = Path(bundle_dir) if bundle_dir else Path(__file__).resolve().parents[2]
+    return root / "app" / "resources" / name
+
+
 def lock_file() -> Path:
     return app_base_dir() / "bitwarden2keepass.lock"

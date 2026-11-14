@@ -22,6 +22,7 @@ if not __package__:  # direct ``python app/main.py`` launch
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtCore import QLockFile
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from app._version import __version__
@@ -38,7 +39,7 @@ from app.infrastructure.config.config_repository import YamlAppSettings
 from app.infrastructure.kdbx.kdbx_writer import KdbxWriter
 from app.infrastructure.logging.app_logger import AppLogger
 from app.infrastructure.output.output_handler import OutputHandler
-from app.infrastructure.paths import bw_data_dir, config_file, lock_file
+from app.infrastructure.paths import bw_data_dir, config_file, lock_file, resource_path
 from app.infrastructure.secure import redact_secrets
 from app.infrastructure.updating.update_adapter import GithubUpdateAdapter
 from app.presentation.main_window import MainWindow
@@ -128,6 +129,9 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Bitwarden 2 KeePass")
     app.setApplicationVersion(__version__)
+    # The EXE's embedded icon only covers Explorer; the title bar, taskbar and
+    # every dialog take the application-wide window icon set here.
+    app.setWindowIcon(QIcon(str(resource_path("Icon.ico"))))
 
     # Single-instance guard + writable-folder check FIRST - nothing below may
     # run next to another live instance (it would wipe that instance's bw data
